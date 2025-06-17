@@ -36,6 +36,13 @@ class RealTimeImpactTracker:
         self.monitoring = False
         self.site_url = os.getenv('SITE_URL', 'http://localhost:5000')  # For keep-alive pings
         
+        # Dashboard tracking
+        self.last_check_time = None
+        self.tweets_sent_today = 0
+        self.recent_tweets = []  # Store last 5 tweets with details
+        self.total_games_checked = 0
+        self.start_time = None
+        
         # Official team hashtags mapping
         self.team_hashtags = {
             'OAK': '#Athletics',
@@ -431,6 +438,14 @@ class RealTimeImpactTracker:
                 tweet = self.twitter_api.update_status(status=tweet_text)
                 
                 self.posted_plays.add(play_id)
+                self.tweets_sent_today += 1
+                
+                # Store recent tweet details (keep last 5)
+                tweet_info = f"{datetime.now().strftime('%H:%M')} - {game_info.get('away_team', 'AWAY')} vs {game_info.get('home_team', 'HOME')} ({impact_score:.1%})"
+                self.recent_tweets.insert(0, tweet_info)
+                if len(self.recent_tweets) > 5:
+                    self.recent_tweets.pop()
+                
                 logger.info(f"✅ Posted marquee moment tweet: {tweet.id}")
                 
                 return True
@@ -443,15 +458,38 @@ class RealTimeImpactTracker:
             logger.error(f"Error posting marquee moment: {e}")
             return False
     
+    def reset_daily_counters(self):
+        """Reset daily counters at 9 AM (after all games are done)"""
+        now = datetime.now()
+        current_date = now.date()
+        
+        # If it's past 9 AM today and we haven't reset yet for this date
+        if now.hour >= 9:
+            reset_date = current_date
+        else:
+            # If it's before 9 AM, we're still counting for "yesterday's" games
+            reset_date = current_date - timedelta(days=1)
+        
+        if not hasattr(self, 'last_reset_date') or self.last_reset_date != reset_date:
+            self.tweets_sent_today = 0
+            self.recent_tweets = []
+            self.last_reset_date = reset_date
+            logger.info("🔄 Daily counters reset at 9 AM - new day started")
+    
     def monitor_games(self):
         """Main monitoring loop - checks every 2 minutes"""
         logger.info("Starting real-time marquee moments monitoring...")
         self.monitoring = True
+        self.start_time = datetime.now()
         ping_counter = 0  # Track cycles for keep-alive pings
         
         while self.monitoring:
             try:
                 start_time = time.time()
+                self.last_check_time = datetime.now()
+                
+                # Reset daily counters if new day
+                self.reset_daily_counters()
                 
                 # Keep-alive ping every 6 minutes (3 cycles of 2 minutes)
                 ping_counter += 1
@@ -461,6 +499,7 @@ class RealTimeImpactTracker:
                 
                 # Get live games
                 live_games = self.get_live_games()
+                self.total_games_checked += len(live_games)
                 
                 for game in live_games:
                     game_id = game.get('gamePk')
@@ -491,7 +530,7 @@ class RealTimeImpactTracker:
                 elapsed = time.time() - start_time
                 sleep_time = max(0, 120 - elapsed)  # 2 minutes = 120 seconds
                 
-                logger.info(f"Scan completed in {elapsed:.1f}s, sleeping for {sleep_time:.1f}s")
+                logger.info(f"Scan completed in {elapsed:.1f}s, checked {len(live_games)} games, sleeping for {sleep_time:.1f}s")
                 time.sleep(sleep_time)
                 
             except KeyboardInterrupt:
@@ -531,7 +570,13 @@ def dashboard():
         'monitoring': tracker.monitoring,
         'posted_plays': len(tracker.posted_plays),
         'twitter_connected': tracker.twitter_api is not None,
-        'last_check': datetime.now().strftime('%Y-%m-%d %H:%M:%S ET')
+        'last_check_time': tracker.last_check_time.strftime('%Y-%m-%d %H:%M:%S ET') if tracker.last_check_time else 'Never',
+        'tweets_sent_today': tracker.tweets_sent_today,
+        'recent_tweets': tracker.recent_tweets,
+        'total_games_checked': tracker.total_games_checked,
+        'start_time': tracker.start_time.strftime('%Y-%m-%d %H:%M:%S ET') if tracker.start_time else 'Not started',
+        'uptime': str(datetime.now() - tracker.start_time).split('.')[0] if tracker.start_time else 'Not started',
+        'next_reset': 'Tomorrow at 9:00 AM ET' if datetime.now().hour >= 9 else 'Today at 9:00 AM ET'
     }
     
     html = """
@@ -571,16 +616,47 @@ def dashboard():
                 <strong>Plays Posted Today:</strong> {{ status.posted_plays }}
             </div>
             <div class="metric">
-                <strong>Last Check:</strong> {{ status.last_check }}
+                <strong>Last Check:</strong> {{ status.last_check_time }}
             </div>
+            <div class="metric">
+                <strong>Tweets Sent Today:</strong> 
+                <span class="{{ 'monitoring' if status.tweets_sent_today > 0 else 'disconnected' }}">
+                    {{ status.tweets_sent_today }}
+                </span>
+            </div>
+            <div class="metric">
+                <strong>Total Games Checked:</strong> {{ status.total_games_checked }}
+            </div>
+            <div class="metric">
+                <strong>Start Time:</strong> {{ status.start_time }}
+            </div>
+            <div class="metric">
+                <strong>Uptime:</strong> {{ status.uptime }}
+            </div>
+            <div class="metric">
+                <strong>Next Reset:</strong> {{ status.next_reset }}
+            </div>
+        </div>
+        
+        <div class="status">
+            <h3>Recent Marquee Moments</h3>
+            {% if status.recent_tweets %}
+                {% for tweet in status.recent_tweets %}
+                <div class="metric">• {{ tweet }}</div>
+                {% endfor %}
+            {% else %}
+                <div class="metric">No marquee moments detected yet today</div>
+            {% endif %}
         </div>
         
         <div class="status">
             <h3>How It Works</h3>
             <p>• Monitors all live MLB games every 2 minutes</p>
             <p>• Calculates win probability impact for each play</p>
-            <p>• Tweets MARQUEE MOMENTS (≥40% WP change) immediately</p>
-            <p>• Focuses on 2-3 elite plays per night across MLB</p>
+            <p>• Tweets MARQUEE MOMENTS (≥40% WP change) immediately when they occur</p>
+            <p>• NO scheduled tweets - only real-time detection and instant posting</p>
+            <p>• Daily counters reset at 9:00 AM ET (after all games finish)</p>
+            <p>• Targets 2-3 elite plays per night across MLB</p>
         </div>
     </body>
     </html>
