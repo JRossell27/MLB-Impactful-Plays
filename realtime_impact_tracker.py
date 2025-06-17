@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 class RealTimeImpactTracker:
     def __init__(self):
         self.api_base = "https://statsapi.mlb.com/api/v1.1"
+        self.schedule_api_base = "https://statsapi.mlb.com/api/v1"  # Schedule uses v1 API
         self.twitter_api = self.setup_twitter()
         self.posted_plays = set()  # Track already posted plays to avoid duplicates
         self.monitoring = False
@@ -106,11 +107,11 @@ class RealTimeImpactTracker:
         """Get all games currently live or recently finished"""
         try:
             today = datetime.now().strftime('%Y-%m-%d')
-            url = f"{self.api_base}/schedule"
+            url = f"{self.schedule_api_base}/schedule"
             params = {
                 'sportId': 1,
                 'date': today,
-                'hydrate': 'linescore,decisions',
+                'hydrate': 'linescore,decisions,team',
                 'useLatestGames': 'false',
                 'language': 'en'
             }

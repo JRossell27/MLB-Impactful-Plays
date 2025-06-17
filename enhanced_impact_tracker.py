@@ -77,6 +77,7 @@ class QueuedPlay:
 class EnhancedImpactTracker:
     def __init__(self):
         self.api_base = "https://statsapi.mlb.com/api/v1.1"
+        self.schedule_api_base = "https://statsapi.mlb.com/api/v1"  # Schedule uses v1 API
         self.twitter_api = self.setup_twitter()
         self.gif_integration = BaseballSavantGIFIntegration()
         
@@ -213,11 +214,11 @@ class EnhancedImpactTracker:
             # Check each date for games
             for date_str in check_dates:
                 try:
-                    url = f"{self.api_base}/schedule"
+                    url = f"{self.schedule_api_base}/schedule"
                     params = {
                         'sportId': 1,
                         'date': date_str,
-                        'hydrate': 'linescore,decisions',
+                        'hydrate': 'linescore,decisions,team',
                         'useLatestGames': 'false',
                         'language': 'en'
                     }
