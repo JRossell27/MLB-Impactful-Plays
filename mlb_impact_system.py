@@ -212,6 +212,66 @@ def enhanced_dashboard():
     except Exception as e:
         return f"<h1>Enhanced Dashboard Error</h1><p>{str(e)}</p>"
 
+@app.route('/debug/twitter')
+def debug_twitter():
+    """Debug Twitter credentials (shows presence, not values)"""
+    import os
+    
+    credentials = {
+        'TWITTER_CONSUMER_KEY': bool(os.getenv('TWITTER_CONSUMER_KEY')),
+        'TWITTER_CONSUMER_SECRET': bool(os.getenv('TWITTER_CONSUMER_SECRET')),
+        'TWITTER_ACCESS_TOKEN': bool(os.getenv('TWITTER_ACCESS_TOKEN')),
+        'TWITTER_ACCESS_TOKEN_SECRET': bool(os.getenv('TWITTER_ACCESS_TOKEN_SECRET'))
+    }
+    
+    all_present = all(credentials.values())
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Twitter Credentials Debug</title>
+        <style>
+            body {{ font-family: Arial; background: #0f1419; color: white; padding: 20px; }}
+            .credential {{ margin: 10px 0; padding: 10px; border-radius: 5px; }}
+            .present {{ background: #28a745; }}
+            .missing {{ background: #dc3545; }}
+            .summary {{ margin-top: 20px; padding: 15px; border-radius: 5px; }}
+        </style>
+    </head>
+    <body>
+        <h1>🐦 Twitter Credentials Status</h1>
+        
+        {''.join([f'<div class="credential {"present" if present else "missing"}">{"✅" if present else "❌"} {name}: {"Present" if present else "Missing"}</div>' for name, present in credentials.items()])}
+        
+        <div class="summary {'present' if all_present else 'missing'}">
+            <strong>Overall Status: {'✅ All credentials present' if all_present else '❌ Some credentials missing'}</strong>
+        </div>
+        
+        <p style="margin-top: 20px;">
+            <a href="/" style="color: #ff6b35;">← Back to Dashboard</a>
+        </p>
+    </body>
+    </html>
+    """
+    
+    return html
+
+@app.route('/retry-twitter')
+def retry_twitter():
+    """Manually retry Twitter authentication"""
+    try:
+        if hasattr(mlb_system, 'enhanced_tracker') and mlb_system.enhanced_tracker:
+            success = mlb_system.enhanced_tracker.retry_twitter_setup()
+            if success:
+                return "✅ Twitter authentication successful!"
+            else:
+                return "❌ Twitter authentication failed - check credentials and /debug/twitter"
+        else:
+            return "❌ Enhanced tracker not available"
+    except Exception as e:
+        return f"❌ Error during Twitter retry: {str(e)}"
+
 @app.route('/health')
 def health():
     """Health check endpoint"""

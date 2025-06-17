@@ -121,8 +121,18 @@ class EnhancedImpactTracker:
             access_token = os.getenv('TWITTER_ACCESS_TOKEN')
             access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
             
-            if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
-                logger.warning("Twitter credentials not found in environment variables")
+            missing_vars = []
+            if not consumer_key:
+                missing_vars.append('TWITTER_CONSUMER_KEY')
+            if not consumer_secret:
+                missing_vars.append('TWITTER_CONSUMER_SECRET')
+            if not access_token:
+                missing_vars.append('TWITTER_ACCESS_TOKEN')
+            if not access_token_secret:
+                missing_vars.append('TWITTER_ACCESS_TOKEN_SECRET')
+            
+            if missing_vars:
+                logger.warning(f"Twitter credentials not found in environment variables: {', '.join(missing_vars)}")
                 return None
             
             auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
@@ -138,6 +148,14 @@ class EnhancedImpactTracker:
         except Exception as e:
             logger.error(f"Twitter API setup failed: {e}")
             return None
+    
+    def retry_twitter_setup(self):
+        """Retry Twitter setup - useful if credentials weren't available at startup"""
+        if self.twitter_api is None:
+            logger.info("🔄 Retrying Twitter API setup...")
+            self.twitter_api = self.setup_twitter()
+            return self.twitter_api is not None
+        return True
     
     def load_queue(self):
         """Load the play queue from disk"""
@@ -169,32 +187,85 @@ class EnhancedImpactTracker:
             logger.error(f"Error saving queue: {e}")
     
     def get_live_games(self) -> List[Dict]:
-        """Get all games currently live or recently finished"""
+        """Get all games currently live or recently finished - checks multiple days during off-season"""
         try:
-            today = datetime.now().strftime('%Y-%m-%d')
-            url = f"{self.api_base}/schedule"
-            params = {
-                'sportId': 1,
-                'date': today,
-                'hydrate': 'game(content(editorial(recap))),decisions,person,probablePitcher,stats,homeRuns,previousPlay,gameInfo,review,linescore,flags,liveLookin,person,probablePitcher,stats,homeRuns,previousPlay,decisions',
-                'useLatestGames': 'false',
-                'language': 'en'
-            }
-            
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
             live_games = []
+            today = datetime.now()
             
-            for date_data in data.get('dates', []):
-                for game in date_data.get('games', []):
-                    status = game.get('status', {}).get('statusCode', '')
-                    # Include live games and recently finished games (within last 60 minutes for video availability)
-                    if status in ['I', 'F', 'O']:  # In Progress, Final, Final - Other
-                        live_games.append(game)
+            # During baseball season, check today + yesterday for recently finished games
+            # During off-season, expand the search window
+            check_dates = []
             
-            logger.debug(f"Found {len(live_games)} live/recent games")
+            # Always check today
+            check_dates.append(today.strftime('%Y-%m-%d'))
+            
+            # Check yesterday for recently finished games (video availability)
+            yesterday = today - timedelta(days=1)
+            check_dates.append(yesterday.strftime('%Y-%m-%d'))
+            
+            # During potential off-season (November-February), also check recent dates
+            if today.month in [11, 12, 1, 2]:
+                for i in range(2, 7):  # Check 5 more days back
+                    past_date = today - timedelta(days=i)
+                    check_dates.append(past_date.strftime('%Y-%m-%d'))
+            
+            # Check each date for games
+            for date_str in check_dates:
+                try:
+                    url = f"{self.api_base}/schedule"
+                    params = {
+                        'sportId': 1,
+                        'date': date_str,
+                        'hydrate': 'game(content(editorial(recap))),decisions,person,probablePitcher,stats,homeRuns,previousPlay,gameInfo,review,linescore,flags,liveLookin,person,probablePitcher,stats,homeRuns,previousPlay,decisions',
+                        'useLatestGames': 'false',
+                        'language': 'en'
+                    }
+                    
+                    response = requests.get(url, params=params, timeout=30)
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    
+                    for date_data in data.get('dates', []):
+                        for game in date_data.get('games', []):
+                            status = game.get('status', {}).get('statusCode', '')
+                            
+                            # Include live games and recently finished games
+                            if status in ['I', 'F', 'O', 'W', 'D']:  # In Progress, Final, Final-Other, Warmup, Delayed
+                                # For finished games, only include if recent (within 3 hours for video availability)
+                                if status in ['F', 'O']:
+                                    game_time = game.get('gameDate', '')
+                                    if game_time:
+                                        try:
+                                            game_dt = datetime.fromisoformat(game_time.replace('Z', '+00:00'))
+                                            hours_since = (datetime.now(game_dt.tzinfo) - game_dt).total_seconds() / 3600
+                                            if hours_since > 3:  # Skip games older than 3 hours
+                                                continue
+                                        except:
+                                            pass  # If we can't parse time, include the game anyway
+                                
+                                if game not in live_games:  # Avoid duplicates
+                                    live_games.append(game)
+                                    
+                except requests.exceptions.RequestException as e:
+                    logger.debug(f"No games found for {date_str}: {e}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"Error checking games for {date_str}: {e}")
+                    continue
+            
+            logger.debug(f"Found {len(live_games)} live/recent games across {len(check_dates)} dates")
+            
+            # If no games found, log appropriate message
+            if len(live_games) == 0:
+                current_month = today.month
+                if current_month in [11, 12, 1, 2]:
+                    logger.info("🏈 Off-season: No live MLB games found (expected November-February)")
+                elif current_month in [3]:
+                    logger.info("🌸 Spring Training: Limited games may be available")
+                else:
+                    logger.info("⚾ No live/recent MLB games found - checking again in 2 minutes")
+            
             return live_games
             
         except Exception as e:
@@ -567,6 +638,7 @@ class EnhancedImpactTracker:
     def monitor_games(self):
         """Main monitoring loop - checks every 2 minutes for high-impact plays"""
         logger.info("🚀 Starting enhanced impact monitoring with GIF integration...")
+        logger.info("🔄 Continuous monitoring: Will check for MLB games every 2 minutes year-round")
         self.monitoring = True
         self.processing_gifs = True
         self.start_time = datetime.now()
@@ -575,13 +647,21 @@ class EnhancedImpactTracker:
         gif_thread = threading.Thread(target=self.process_gif_queue, daemon=True)
         gif_thread.start()
         
+        scan_count = 0
+        
         while self.monitoring:
             try:
+                scan_count += 1
                 start_time = time.time()
                 self.last_check_time = datetime.now()
                 
+                logger.debug(f"🔍 Starting scan #{scan_count} at {self.last_check_time.strftime('%H:%M:%S')}")
+                
                 # Get live games
                 live_games = self.get_live_games()
+                
+                high_impact_plays_found = 0
+                total_plays_checked = 0
                 
                 for game in live_games:
                     game_id = game.get('gamePk')
@@ -598,6 +678,7 @@ class EnhancedImpactTracker:
                     
                     # Get plays from this game
                     plays = self.get_game_plays(game_id)
+                    total_plays_checked += len(plays)
                     
                     # Process all plays for impact
                     for play in plays:
@@ -605,6 +686,7 @@ class EnhancedImpactTracker:
                         
                         # Check if this is a marquee moment worth queuing
                         if self.is_high_impact_play(impact_score, play.get('leverage_index', 1.0)):
+                            high_impact_plays_found += 1
                             logger.info(f"⭐ High-impact play detected: {impact_score:.1%} impact")
                             self.queue_high_impact_play(play, game_info, impact_score)
                 
@@ -612,14 +694,19 @@ class EnhancedImpactTracker:
                 elapsed = time.time() - start_time
                 sleep_time = max(0, 120 - elapsed)  # 2 minutes = 120 seconds
                 
-                logger.info(f"📊 Scan completed in {elapsed:.1f}s")
-                logger.info(f"   Games checked: {len(live_games)}")
-                logger.info(f"   Plays queued today: {self.plays_queued_today}")
-                logger.info(f"   GIFs created today: {self.gifs_created_today}")
-                logger.info(f"   Tweets posted today: {self.tweets_posted_today}")
-                logger.info(f"   Current queue size: {len(self.play_queue)}/{self.max_queue_size}")
-                logger.info(f"   Processed plays tracked: {len(self.processed_plays)}/{self.max_processed_plays}")
-                logger.info(f"   Sleeping for {sleep_time:.1f}s...")
+                # Comprehensive status logging
+                logger.info(f"📊 Scan #{scan_count} completed in {elapsed:.1f}s")
+                logger.info(f"   Live/recent games found: {len(live_games)}")
+                logger.info(f"   Total plays checked: {total_plays_checked}")
+                logger.info(f"   High-impact plays found this scan: {high_impact_plays_found}")
+                logger.info(f"   Daily totals - Queued: {self.plays_queued_today}, GIFs: {self.gifs_created_today}, Tweets: {self.tweets_posted_today}")
+                logger.info(f"   Queue status: {len(self.play_queue)}/{self.max_queue_size} plays")
+                logger.info(f"   System uptime: {str(datetime.now() - self.start_time).split('.')[0]}")
+                logger.info(f"   Next scan in {sleep_time:.1f}s...")
+                
+                # If it's been a while since we found games, remind user system is still active
+                if len(live_games) == 0 and scan_count % 30 == 0:  # Every hour when no games
+                    logger.info(f"🤖 System active: Completed {scan_count} scans, monitoring continuously for MLB games")
                 
                 time.sleep(sleep_time)
                 
@@ -627,7 +714,8 @@ class EnhancedImpactTracker:
                 logger.info("Monitoring stopped by user")
                 break
             except Exception as e:
-                logger.error(f"Error in monitoring loop: {e}")
+                logger.error(f"Error in monitoring loop (scan #{scan_count}): {e}")
+                logger.info("🔄 Continuing monitoring in 2 minutes...")
                 time.sleep(120)  # Wait 2 minutes before retrying
     
     def stop_monitoring(self):
