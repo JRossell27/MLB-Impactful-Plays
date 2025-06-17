@@ -76,7 +76,7 @@ class QueuedPlay:
 
 class EnhancedImpactTracker:
     def __init__(self):
-        self.api_base = "https://statsapi.mlb.com/api/v1"
+        self.api_base = "https://statsapi.mlb.com/api/v1.1"
         self.twitter_api = self.setup_twitter()
         self.gif_integration = BaseballSavantGIFIntegration()
         

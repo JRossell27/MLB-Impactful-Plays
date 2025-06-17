@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 class RealTimeImpactTracker:
     def __init__(self):
-        self.api_base = "https://statsapi.mlb.com/api/v1"
+        self.api_base = "https://statsapi.mlb.com/api/v1.1"
         self.twitter_api = self.setup_twitter()
         self.posted_plays = set()  # Track already posted plays to avoid duplicates
         self.monitoring = False
