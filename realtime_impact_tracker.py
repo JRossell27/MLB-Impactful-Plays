@@ -110,7 +110,7 @@ class RealTimeImpactTracker:
             params = {
                 'sportId': 1,
                 'date': today,
-                'hydrate': 'game(content(editorial(recap))),decisions,person,probablePitcher,stats,homeRuns,previousPlay,gameInfo,review,linescore,flags,liveLookin,person,probablePitcher,stats,homeRuns,previousPlay,decisions',
+                'hydrate': 'linescore,decisions',
                 'useLatestGames': 'false',
                 'language': 'en'
             }
@@ -125,7 +125,7 @@ class RealTimeImpactTracker:
                 for game in date_data.get('games', []):
                     status = game.get('status', {}).get('statusCode', '')
                     # Include live games and recently finished games (within last 30 minutes)
-                    if status in ['I', 'F', 'O']:  # In Progress, Final, Final - Other
+                    if status in ['I', 'F', 'O', 'PW']:  # In Progress, Final, Final - Other, Pre-Warmup
                         live_games.append(game)
             
             logger.info(f"Found {len(live_games)} live/recent games")

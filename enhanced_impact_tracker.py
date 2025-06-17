@@ -217,7 +217,7 @@ class EnhancedImpactTracker:
                     params = {
                         'sportId': 1,
                         'date': date_str,
-                        'hydrate': 'game(content(editorial(recap))),decisions,person,probablePitcher,stats,homeRuns,previousPlay,gameInfo,review,linescore,flags,liveLookin,person,probablePitcher,stats,homeRuns,previousPlay,decisions',
+                        'hydrate': 'linescore,decisions',
                         'useLatestGames': 'false',
                         'language': 'en'
                     }
@@ -232,7 +232,7 @@ class EnhancedImpactTracker:
                             status = game.get('status', {}).get('statusCode', '')
                             
                             # Include live games and recently finished games
-                            if status in ['I', 'F', 'O', 'W', 'D']:  # In Progress, Final, Final-Other, Warmup, Delayed
+                            if status in ['I', 'F', 'O', 'W', 'D', 'PW']:  # In Progress, Final, Final-Other, Warmup, Delayed, Pre-Warmup
                                 # For finished games, only include if recent (within 3 hours for video availability)
                                 if status in ['F', 'O']:
                                     game_time = game.get('gameDate', '')

@@ -195,7 +195,7 @@ class LiveImpactTracker:
             for game in games:
                 status = game.get('status', {}).get('statusCode', '')
                 # Include live games, recently completed games, and games in progress
-                if status in ['I', 'F', 'O', 'S']:  # In progress, Final, Other, Suspended
+                if status in ['I', 'F', 'O', 'S', 'PW']:  # In progress, Final, Other, Suspended, Pre-Warmup
                     relevant_games.append(game)
             
             logger.debug(f"🎮 Found {len(relevant_games)} relevant games out of {len(games)} total")
