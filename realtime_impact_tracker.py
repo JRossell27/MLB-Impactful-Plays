@@ -125,7 +125,7 @@ class RealTimeImpactTracker:
                 for game in date_data.get('games', []):
                     status = game.get('status', {}).get('statusCode', '')
                     # Include live games and recently finished games (within last 30 minutes)
-                    if status in ['I', 'F', 'O', 'PW']:  # In Progress, Final, Final - Other, Pre-Warmup
+                    if status in ['I', 'F', 'O', 'PW', 'D']:  # In Progress, Final, Final - Other, Pre-Warmup, Delayed
                         live_games.append(game)
             
             logger.info(f"Found {len(live_games)} live/recent games")
