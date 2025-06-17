@@ -116,16 +116,17 @@ class EnhancedImpactTracker:
     def setup_twitter(self):
         """Initialize Twitter API connection"""
         try:
-            consumer_key = os.getenv('TWITTER_CONSUMER_KEY')
-            consumer_secret = os.getenv('TWITTER_CONSUMER_SECRET')
+            # Check for both naming conventions
+            consumer_key = os.getenv('TWITTER_CONSUMER_KEY') or os.getenv('TWITTER_API_KEY')
+            consumer_secret = os.getenv('TWITTER_CONSUMER_SECRET') or os.getenv('TWITTER_API_SECRET')
             access_token = os.getenv('TWITTER_ACCESS_TOKEN')
             access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
             
             missing_vars = []
             if not consumer_key:
-                missing_vars.append('TWITTER_CONSUMER_KEY')
+                missing_vars.append('TWITTER_CONSUMER_KEY (or TWITTER_API_KEY)')
             if not consumer_secret:
-                missing_vars.append('TWITTER_CONSUMER_SECRET')
+                missing_vars.append('TWITTER_CONSUMER_SECRET (or TWITTER_API_SECRET)')
             if not access_token:
                 missing_vars.append('TWITTER_ACCESS_TOKEN')
             if not access_token_secret:

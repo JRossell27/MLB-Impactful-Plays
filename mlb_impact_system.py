@@ -217,14 +217,34 @@ def debug_twitter():
     """Debug Twitter credentials (shows presence, not values)"""
     import os
     
+    # Check for both naming conventions
+    consumer_key = os.getenv('TWITTER_CONSUMER_KEY') or os.getenv('TWITTER_API_KEY')
+    consumer_secret = os.getenv('TWITTER_CONSUMER_SECRET') or os.getenv('TWITTER_API_SECRET')
+    access_token = os.getenv('TWITTER_ACCESS_TOKEN')
+    access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
+    bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
+    
     credentials = {
-        'TWITTER_CONSUMER_KEY': bool(os.getenv('TWITTER_CONSUMER_KEY')),
-        'TWITTER_CONSUMER_SECRET': bool(os.getenv('TWITTER_CONSUMER_SECRET')),
-        'TWITTER_ACCESS_TOKEN': bool(os.getenv('TWITTER_ACCESS_TOKEN')),
-        'TWITTER_ACCESS_TOKEN_SECRET': bool(os.getenv('TWITTER_ACCESS_TOKEN_SECRET'))
+        'TWITTER_CONSUMER_KEY / TWITTER_API_KEY': bool(consumer_key),
+        'TWITTER_CONSUMER_SECRET / TWITTER_API_SECRET': bool(consumer_secret),
+        'TWITTER_ACCESS_TOKEN': bool(access_token),
+        'TWITTER_ACCESS_TOKEN_SECRET': bool(access_token_secret),
+        'TWITTER_BEARER_TOKEN (optional)': bool(bearer_token)
     }
     
-    all_present = all(credentials.values())
+    # Check individual variables for detailed view
+    individual_vars = {
+        'TWITTER_CONSUMER_KEY': bool(os.getenv('TWITTER_CONSUMER_KEY')),
+        'TWITTER_API_KEY': bool(os.getenv('TWITTER_API_KEY')),
+        'TWITTER_CONSUMER_SECRET': bool(os.getenv('TWITTER_CONSUMER_SECRET')),
+        'TWITTER_API_SECRET': bool(os.getenv('TWITTER_API_SECRET')),
+        'TWITTER_ACCESS_TOKEN': bool(os.getenv('TWITTER_ACCESS_TOKEN')),
+        'TWITTER_ACCESS_TOKEN_SECRET': bool(os.getenv('TWITTER_ACCESS_TOKEN_SECRET')),
+        'TWITTER_BEARER_TOKEN': bool(os.getenv('TWITTER_BEARER_TOKEN'))
+    }
+    
+    # Check if required credentials are available
+    required_present = consumer_key and consumer_secret and access_token and access_token_secret
     
     html = f"""
     <!DOCTYPE html>
@@ -237,19 +257,35 @@ def debug_twitter():
             .present {{ background: #28a745; }}
             .missing {{ background: #dc3545; }}
             .summary {{ margin-top: 20px; padding: 15px; border-radius: 5px; }}
+            .section {{ margin: 20px 0; padding: 15px; background: #21262d; border-radius: 8px; }}
+            .small {{ font-size: 0.9em; opacity: 0.8; }}
         </style>
     </head>
     <body>
         <h1>🐦 Twitter Credentials Status</h1>
         
-        {''.join([f'<div class="credential {"present" if present else "missing"}">{"✅" if present else "❌"} {name}: {"Present" if present else "Missing"}</div>' for name, present in credentials.items()])}
+        <div class="section">
+            <h3>Required Credentials (with fallback naming):</h3>
+            {''.join([f'<div class="credential {"present" if present else "missing"}">{"✅" if present else "❌"} {name}: {"Present" if present else "Missing"}</div>' for name, present in credentials.items()])}
+        </div>
         
-        <div class="summary {'present' if all_present else 'missing'}">
-            <strong>Overall Status: {'✅ All credentials present' if all_present else '❌ Some credentials missing'}</strong>
+        <div class="summary {'present' if required_present else 'missing'}">
+            <strong>Overall Status: {'✅ All required credentials present' if required_present else '❌ Some required credentials missing'}</strong>
+        </div>
+        
+        <div class="section">
+            <h3>Individual Environment Variables:</h3>
+            <div class="small">Shows exactly which variables are set in your environment:</div>
+            {''.join([f'<div class="credential {"present" if present else "missing"}">{"✅" if present else "❌"} {name}: {"Set" if present else "Not Set"}</div>' for name, present in individual_vars.items()])}
+        </div>
+        
+        <div class="section small">
+            <strong>Note:</strong> The system will use TWITTER_API_KEY if TWITTER_CONSUMER_KEY is not found, and TWITTER_API_SECRET if TWITTER_CONSUMER_SECRET is not found.
         </div>
         
         <p style="margin-top: 20px;">
-            <a href="/" style="color: #ff6b35;">← Back to Dashboard</a>
+            <a href="/" style="color: #ff6b35;">← Back to Dashboard</a> | 
+            <a href="/retry-twitter" style="color: #ff6b35;">Retry Twitter Auth</a>
         </p>
     </body>
     </html>
