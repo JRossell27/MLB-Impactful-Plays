@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Complete MLB Impact System - Live tracking + Daily tweets
+Complete MLB Impact System - Enhanced with GIF Integration
 """
 
 import os
@@ -8,7 +8,6 @@ import time
 import logging
 import threading
 from datetime import datetime
-import schedule
 import pytz
 from flask import Flask
 
@@ -29,52 +28,55 @@ class MLBImpactSystem:
     """Complete system for tracking and tweeting MLB impact plays"""
     
     def __init__(self):
-        self.live_tracker = None
+        self.enhanced_tracker = None
         self.is_running = False
         self.tracker_thread = None
-        self.scheduler_thread = None
     
-    def start_live_tracking(self):
-        """Start the live tracking in a background thread"""
-        from live_impact_tracker import LiveImpactTracker
-        
-        self.live_tracker = LiveImpactTracker()
-        
-        def run_tracker():
-            logger.info("🚀 Starting live impact tracking...")
-            self.live_tracker.start_monitoring(interval_minutes=2)
-        
-        self.tracker_thread = threading.Thread(target=run_tracker, daemon=True)
-        self.tracker_thread.start()
-        logger.info("✅ Live tracking started in background")
+    def start_enhanced_tracking(self):
+        """Start the enhanced tracking with GIF integration"""
+        try:
+            from enhanced_impact_tracker import EnhancedImpactTracker
+            
+            self.enhanced_tracker = EnhancedImpactTracker()
+            
+            def run_tracker():
+                logger.info("🚀 Starting enhanced impact tracking with GIF integration...")
+                self.enhanced_tracker.monitor_games()
+            
+            self.tracker_thread = threading.Thread(target=run_tracker, daemon=True)
+            self.tracker_thread.start()
+            logger.info("✅ Enhanced tracking started in background")
+            
+        except ImportError as e:
+            logger.error(f"Failed to import enhanced tracker: {e}")
+            # Fallback to basic tracker if enhanced isn't available
+            self.start_basic_tracking()
     
-    def schedule_daily_tweets(self):
-        """Schedule daily tweets"""
-        from impact_plays_tracker import send_daily_impact_tweet
-        
-        # Schedule for 12:00 PM Eastern
-        schedule.every().day.at("12:00").do(send_daily_impact_tweet)
-        logger.info("📅 Scheduled daily tweets for 12:00 PM Eastern")
-        
-        def run_scheduler():
-            while self.is_running:
-                schedule.run_pending()
-                time.sleep(60)  # Check every minute
-        
-        self.scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-        self.scheduler_thread.start()
-        logger.info("✅ Tweet scheduler started")
+    def start_basic_tracking(self):
+        """Fallback to basic real-time tracking"""
+        try:
+            from realtime_impact_tracker import RealTimeImpactTracker
+            
+            self.basic_tracker = RealTimeImpactTracker()
+            
+            def run_basic_tracker():
+                logger.info("🚀 Starting basic real-time tracking...")
+                self.basic_tracker.monitor_games()
+            
+            self.tracker_thread = threading.Thread(target=run_basic_tracker, daemon=True)
+            self.tracker_thread.start()
+            logger.info("✅ Basic tracking started in background")
+            
+        except ImportError as e:
+            logger.error(f"Failed to import any tracker: {e}")
     
     def start_system(self):
         """Start the complete system"""
         logger.info("🚨 Starting MLB Impact System...")
         self.is_running = True
         
-        # Start live tracking
-        self.start_live_tracking()
-        
-        # Start tweet scheduler
-        self.schedule_daily_tweets()
+        # Start enhanced tracking (with fallback)
+        self.start_enhanced_tracking()
         
         logger.info("✅ MLB Impact System fully operational!")
     
@@ -83,54 +85,37 @@ class MLBImpactSystem:
         logger.info("🛑 Stopping MLB Impact System...")
         self.is_running = False
         
-        if self.live_tracker:
-            self.live_tracker.stop_monitoring()
+        if hasattr(self, 'enhanced_tracker') and self.enhanced_tracker:
+            self.enhanced_tracker.stop_monitoring()
+        elif hasattr(self, 'basic_tracker') and self.basic_tracker:
+            self.basic_tracker.stop_monitoring()
     
     def get_current_status(self):
         """Get current system status"""
         status = {
             'system_running': self.is_running,
-            'live_tracker_active': self.live_tracker is not None and self.live_tracker.is_running,
+            'enhanced_tracker_active': hasattr(self, 'enhanced_tracker') and self.enhanced_tracker is not None,
             'current_time': datetime.now(eastern_tz).isoformat(),
-            'next_tweet': None,
-            'top_plays_count': 0,
+            'tracker_type': 'Enhanced with GIF Integration' if hasattr(self, 'enhanced_tracker') else 'Basic Real-time',
             'last_updated': 'Unknown'
         }
         
-        # Get next scheduled tweet time
-        try:
-            if schedule.jobs:
-                next_run = schedule.next_run()
-                if next_run:
-                    status['next_tweet'] = next_run.strftime("%Y-%m-%d %H:%M:%S ET")
-        except Exception as e:
-            logger.error(f"Error getting next tweet schedule: {e}")
-        
-        # Get current top plays count and details
-        if self.live_tracker:
+        # Get status from enhanced tracker if available
+        if hasattr(self, 'enhanced_tracker') and self.enhanced_tracker:
             try:
-                top_plays = self.live_tracker.get_daily_top_plays()
-                status['top_plays_count'] = len(top_plays)
-                status['top_plays'] = []
-                
-                for i, play in enumerate(top_plays, 1):
-                    play_info = {
-                        'rank': i,
-                        'event': play.event,
-                        'impact': f"{play.impact:.1f}%",
-                        'teams': f"{play.away_team} @ {play.home_team}",
-                        'inning': f"{play.half_inning.title()} {play.inning}",
-                        'has_real_wpa': play.has_real_wpa,
-                        'timestamp': play.timestamp
-                    }
-                    status['top_plays'].append(play_info)
-                
-                # Get last updated time
-                status['last_updated'] = self.live_tracker.get_data_last_updated()
-                
+                enhanced_status = self.enhanced_tracker.get_status()
+                status.update({
+                    'monitoring': enhanced_status.get('monitoring', False),
+                    'processing_gifs': enhanced_status.get('processing_gifs', False),
+                    'twitter_connected': enhanced_status.get('twitter_connected', False),
+                    'plays_queued_today': enhanced_status.get('plays_queued_today', 0),
+                    'gifs_created_today': enhanced_status.get('gifs_created_today', 0),
+                    'tweets_posted_today': enhanced_status.get('tweets_posted_today', 0),
+                    'queue_size': enhanced_status.get('current_queue_size', 0),
+                    'last_check_time': enhanced_status.get('last_check_time', 'Never')
+                })
             except Exception as e:
-                logger.error(f"Error getting top plays status: {e}")
-                status['error'] = f"Error retrieving plays: {str(e)}"
+                logger.error(f"Error getting enhanced tracker status: {e}")
         
         return status
 
@@ -139,462 +124,123 @@ mlb_system = MLBImpactSystem()
 
 @app.route('/')
 def home():
-    """Professional system status dashboard"""
+    """System status dashboard"""
     try:
         status = mlb_system.get_current_status()
         
-        # Get last updated time from live tracker
-        last_updated = "Unknown"
-        if mlb_system.live_tracker:
-            last_updated = mlb_system.live_tracker.get_data_last_updated()
-            if last_updated != "Unknown" and last_updated != "No data file found":
-                try:
-                    # Parse and format the timestamp
-                    dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
-                    last_updated = dt.strftime("%Y-%m-%d %H:%M:%S ET")
-                except:
-                    pass
+        # If enhanced tracker is available, redirect to enhanced dashboard
+        if hasattr(mlb_system, 'enhanced_tracker') and mlb_system.enhanced_tracker:
+            return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>MLB Enhanced Impact System</title>
+                <meta http-equiv="refresh" content="2;url=/enhanced">
+                <style>
+                    body { 
+                        font-family: Arial, sans-serif; 
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white; 
+                        text-align: center;
+                        padding: 50px;
+                    }
+                    .loading { font-size: 24px; margin-bottom: 20px; }
+                    .info { font-size: 16px; opacity: 0.8; }
+                </style>
+            </head>
+            <body>
+                <div class="loading">🎬 Loading Enhanced MLB Impact Tracker...</div>
+                <div class="info">Redirecting to enhanced dashboard with GIF integration...</div>
+                <div class="info">If not redirected, <a href="/enhanced" style="color: #ff6b35;">click here</a></div>
+            </body>
+            </html>
+            """
         
+        # Basic status page
         html = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>MLB Impact System Dashboard</title>
+            <title>MLB Impact System</title>
             <meta http-equiv="refresh" content="30">
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                * {{
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                }}
-                
                 body {{ 
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    background: linear-gradient(135deg, #0f1419 0%, #1a2332 100%);
-                    color: #ffffff;
-                    min-height: 100vh;
-                    padding: 20px;
+                    font-family: Arial, sans-serif; 
+                    background: #0f1419; 
+                    color: white; 
+                    padding: 40px;
                 }}
-                
-                .container {{
-                    max-width: 1200px;
-                    margin: 0 auto;
-                }}
-                
-                .header {{
-                    text-align: center;
-                    margin-bottom: 40px;
-                    padding: 30px;
-                    background: linear-gradient(45deg, #ff6b35, #f7931e);
-                    border-radius: 15px;
-                    box-shadow: 0 8px 32px rgba(255, 107, 53, 0.3);
-                }}
-                
-                .header h1 {{
-                    font-size: 2.5em;
-                    margin-bottom: 10px;
-                    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-                }}
-                
-                .header p {{
-                    font-size: 1.2em;
-                    opacity: 0.9;
-                }}
-                
-                .status-grid {{
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-                    gap: 20px;
-                    margin-bottom: 40px;
-                }}
-                
-                .status-card {{
-                    background: rgba(42, 52, 65, 0.8);
-                    border-radius: 12px;
-                    padding: 25px;
-                    border: 1px solid #3a4451;
-                    backdrop-filter: blur(10px);
-                    transition: transform 0.3s ease;
-                }}
-                
-                .status-card:hover {{
-                    transform: translateY(-5px);
-                }}
-                
-                .status-item {{
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin: 15px 0;
-                    padding: 10px 0;
-                    border-bottom: 1px solid #404854;
-                }}
-                
-                .status-item:last-child {{
-                    border-bottom: none;
-                }}
-                
-                .status-label {{
-                    font-weight: 600;
-                    color: #cccccc;
-                }}
-                
-                .status-value {{
-                    font-weight: 700;
-                    color: #ffffff;
-                }}
-                
-                .status-active {{ color: #28a745; }}
-                .status-inactive {{ color: #dc3545; }}
-                .status-warning {{ color: #ffc107; }}
-                
-                .plays-section {{
-                    margin-top: 30px;
-                }}
-                
-                .section-title {{
-                    font-size: 1.8em;
-                    margin-bottom: 25px;
-                    color: #ff6b35;
-                    text-align: center;
-                    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-                }}
-                
-                .play-item {{
-                    background: linear-gradient(135deg, #2a3441 0%, #1e2631 100%);
-                    padding: 25px;
-                    margin: 15px 0;
-                    border-radius: 12px;
-                    border-left: 5px solid #ff6b35;
-                    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-                    transition: all 0.3s ease;
-                }}
-                
-                .play-item:hover {{
-                    transform: translateX(5px);
-                    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.2);
-                }}
-                
-                .play-header {{
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 15px;
-                }}
-                
-                .play-rank {{
-                    font-size: 1.5em;
-                    font-weight: bold;
-                    padding: 8px 15px;
-                    border-radius: 25px;
-                    color: black;
-                    text-shadow: none;
-                }}
-                
-                .rank-1 {{ background: linear-gradient(45deg, #FFD700, #FFA500); }}
-                .rank-2 {{ background: linear-gradient(45deg, #C0C0C0, #A0A0A0); }}
-                .rank-3 {{ background: linear-gradient(45deg, #CD7F32, #B8860B); }}
-                
-                .wpa-indicator {{
-                    display: inline-block;
-                    padding: 6px 12px;
-                    border-radius: 20px;
-                    font-size: 0.85em;
-                    font-weight: 600;
-                    text-transform: uppercase;
-                }}
-                
-                .real-wpa {{
-                    background: linear-gradient(45deg, #28a745, #20c997);
-                    color: white;
-                }}
-                
-                .statistical {{
-                    background: linear-gradient(45deg, #6c757d, #545b62);
-                    color: white;
-                }}
-                
-                .play-details {{
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                    gap: 15px;
-                    margin-top: 15px;
-                }}
-                
-                .detail-item {{
-                    background: rgba(15, 20, 25, 0.5);
-                    padding: 10px 15px;
-                    border-radius: 8px;
-                    border: 1px solid #404854;
-                }}
-                
-                .detail-label {{
-                    font-size: 0.85em;
-                    color: #888888;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }}
-                
-                .detail-value {{
-                    font-size: 1.1em;
-                    font-weight: 600;
-                    color: #ffffff;
-                    margin-top: 5px;
-                }}
-                
-                .no-plays {{
-                    text-align: center;
-                    padding: 60px 20px;
-                    background: rgba(42, 52, 65, 0.3);
-                    border-radius: 12px;
-                    border: 2px dashed #404854;
-                }}
-                
-                .no-plays-icon {{
-                    font-size: 4em;
-                    margin-bottom: 20px;
-                    opacity: 0.5;
-                }}
-                
-                .footer {{
-                    margin-top: 50px;
-                    padding: 30px;
-                    background: rgba(15, 20, 25, 0.8);
-                    border-radius: 12px;
-                    text-align: center;
-                    border: 1px solid #2a3441;
-                }}
-                
-                .footer-info {{
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-                    gap: 20px;
-                    margin-bottom: 20px;
-                }}
-                
-                .footer-item {{
-                    padding: 15px;
-                    background: rgba(42, 52, 65, 0.5);
-                    border-radius: 8px;
-                }}
-                
-                .refresh-indicator {{
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    background: rgba(255, 107, 53, 0.9);
-                    color: white;
-                    padding: 10px 15px;
-                    border-radius: 25px;
-                    font-size: 0.9em;
-                    font-weight: 600;
-                    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
-                }}
-                
-                @media (max-width: 768px) {{
-                    .header h1 {{ font-size: 2em; }}
-                    .status-grid {{ grid-template-columns: 1fr; }}
-                    .play-details {{ grid-template-columns: 1fr; }}
-                    .footer-info {{ grid-template-columns: 1fr; }}
-                }}
+                .header {{ color: #ff6b35; margin-bottom: 30px; }}
+                .status {{ background: #21262d; padding: 20px; border-radius: 8px; }}
+                .metric {{ margin: 10px 0; }}
+                .active {{ color: #28a745; }}
+                .inactive {{ color: #dc3545; }}
             </style>
         </head>
         <body>
-            <div class="refresh-indicator">🔄 Auto-refresh: 30s</div>
-            
-            <div class="container">
-                <div class="header">
-                    <h1>🚨 MLB Impact System Dashboard 🚨</h1>
-                    <p>Real-time tracking of the biggest moments in baseball</p>
+            <h1 class="header">🎯 MLB Impact System</h1>
+            <div class="status">
+                <div class="metric"><strong>Status:</strong> 
+                    <span class="{'active' if status['system_running'] else 'inactive'}">
+                        {'🟢 RUNNING' if status['system_running'] else '🔴 STOPPED'}
+                    </span>
                 </div>
-                
-                <div class="status-grid">
-                    <div class="status-card">
-                        <h3>🖥️ System Status</h3>
-                        <div class="status-item">
-                            <span class="status-label">System:</span>
-                            <span class="status-value {'status-active' if status['system_running'] else 'status-inactive'}">
-                                {'🟢 Active' if status['system_running'] else '🔴 Inactive'}
-                            </span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Live Tracker:</span>
-                            <span class="status-value {'status-active' if status['live_tracker_active'] else 'status-inactive'}">
-                                {'🟢 Running' if status['live_tracker_active'] else '🔴 Stopped'}
-                            </span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Current Time:</span>
-                            <span class="status-value">{status['current_time'][:19]} ET</span>
-                        </div>
-                    </div>
-                    
-                    <div class="status-card">
-                        <h3>📊 Data Status</h3>
-                        <div class="status-item">
-                            <span class="status-label">Last Updated:</span>
-                            <span class="status-value">{last_updated}</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Top Plays Today:</span>
-                            <span class="status-value {'status-active' if status['top_plays_count'] > 0 else 'status-warning'}">
-                                {status['top_plays_count']}/3
-                            </span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Monitoring:</span>
-                            <span class="status-value status-active">Every 2 minutes</span>
-                        </div>
-                    </div>
-                    
-                    <div class="status-card">
-                        <h3>🐦 Tweet Status</h3>
-                        <div class="status-item">
-                            <span class="status-label">Next Tweet:</span>
-                            <span class="status-value">{status['next_tweet'] or 'Not scheduled'}</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Tweet Content:</span>
-                            <span class="status-value">Previous Day's Top 3</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Schedule:</span>
-                            <span class="status-value">Daily at 12:00 PM ET</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="plays-section">
-                    <h2 class="section-title">🏆 Current Top Impact Plays (Today)</h2>
-        """
-        
-        if status['top_plays']:
-            for i, play in enumerate(status['top_plays']):
-                rank_class = f"rank-{i+1}"
-                wpa_class = 'real-wpa' if play['has_real_wpa'] else 'statistical'
-                wpa_text = '🎯 MLB WPA' if play['has_real_wpa'] else '📊 Statistical'
-                
-                html += f"""
-                <div class="play-item">
-                    <div class="play-header">
-                        <div class="play-rank {rank_class}">#{play['rank']}</div>
-                        <div class="wpa-indicator {wpa_class}">{wpa_text}</div>
-                    </div>
-                    
-                    <h3 style="margin-bottom: 15px; color: #ff6b35;">{play['event']}</h3>
-                    
-                    <div class="play-details">
-                        <div class="detail-item">
-                            <div class="detail-label">Impact</div>
-                            <div class="detail-value" style="color: #00ff88;">{play['impact']}</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Teams</div>
-                            <div class="detail-value">{play['teams']}</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Inning</div>
-                            <div class="detail-value">{play['inning']}</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Tracked</div>
-                            <div class="detail-value">{play['timestamp'][:16]}</div>
-                        </div>
-                    </div>
-                </div>
-                """
-        else:
-            html += """
-            <div class="no-plays">
-                <div class="no-plays-icon">⚾</div>
-                <h3>No High-Impact Plays Found Yet Today</h3>
-                <p>System is actively monitoring all live MLB games...<br>
-                Check back soon for the biggest moments!</p>
-            </div>
-            """
-        
-        html += f"""
-                </div>
-                
-                <div class="footer">
-                    <div class="footer-info">
-                        <div class="footer-item">
-                            <strong>🔄 Auto-Refresh</strong><br>
-                            Page refreshes every 30 seconds
-                        </div>
-                        <div class="footer-item">
-                            <strong>📊 Live Monitoring</strong><br>
-                            All MLB games checked every 2 minutes
-                        </div>
-                        <div class="footer-item">
-                            <strong>🐦 Daily Tweets</strong><br>
-                            Sent at 12:00 PM ET with previous day's top 3
-                        </div>
-                        <div class="footer-item">
-                            <strong>🎯 Data Sources</strong><br>
-                            Real MLB WPA + Statistical fallback
-                        </div>
-                    </div>
-                    
-                    <p style="margin-top: 20px; color: #888888;">
-                        MLB Impact System • Deployed on Render • 
-                        <a href="/test-tweet" style="color: #ff6b35;">Test Tweet</a> • 
-                        <a href="/current-plays" style="color: #ff6b35;">API</a>
-                    </p>
-                </div>
+                <div class="metric"><strong>Type:</strong> {status.get('tracker_type', 'Unknown')}</div>
+                <div class="metric"><strong>Time:</strong> {status.get('current_time', 'Unknown')}</div>
+                {'<div class="metric"><strong>Queue Size:</strong> ' + str(status.get('queue_size', 0)) + '</div>' if 'queue_size' in status else ''}
+                {'<div class="metric"><strong>Tweets Today:</strong> ' + str(status.get('tweets_posted_today', 0)) + '</div>' if 'tweets_posted_today' in status else ''}
             </div>
         </body>
         </html>
         """
-        
         return html
         
     except Exception as e:
-        logger.error(f"Error in home route: {e}")
-        return f"""
-        <html>
-        <body style="font-family: Arial; background: #1a1a1a; color: white; padding: 20px;">
-            <h1>❌ Dashboard Error</h1>
-            <p>Error loading dashboard: {str(e)}</p>
-            <p><a href="/" style="color: #ff6b35;">Try Again</a></p>
-        </body>
-        </html>
-        """, 500
+        logger.error(f"Error in dashboard: {e}")
+        return f"<h1>System Error</h1><p>{str(e)}</p>"
 
-@app.route('/test-tweet')
-def test_tweet():
-    """Test endpoint to manually trigger daily tweet"""
+@app.route('/enhanced')
+def enhanced_dashboard():
+    """Redirect to enhanced dashboard if available"""
     try:
-        from impact_plays_tracker import send_daily_impact_tweet
-        send_daily_impact_tweet()
-        return "✅ Test tweet sent successfully!"
+        if hasattr(mlb_system, 'enhanced_tracker') and mlb_system.enhanced_tracker:
+            # Import and serve enhanced dashboard
+            from enhanced_dashboard import dashboard
+            return dashboard()
+        else:
+            return "<h1>Enhanced Dashboard Not Available</h1><p>Enhanced tracker not loaded</p>"
     except Exception as e:
-        logger.error(f"Error in test endpoint: {e}")
-        return f"❌ Error: {str(e)}", 500
+        return f"<h1>Enhanced Dashboard Error</h1><p>{str(e)}</p>"
 
-@app.route('/current-plays')
-def current_plays():
-    """API endpoint to get current top plays as JSON"""
-    try:
-        status = mlb_system.get_current_status()
-        return {
-            'success': True,
-            'plays_count': status['top_plays_count'],
-            'plays': status['top_plays'],
-            'last_updated': status['current_time']
-        }
-    except Exception as e:
-        logger.error(f"Error in current plays endpoint: {e}")
-        return {'success': False, 'error': str(e)}, 500
+@app.route('/health')
+def health():
+    """Health check endpoint"""
+    return {'status': 'healthy', 'timestamp': str(datetime.now())}
+
+@app.route('/start')
+def start_system():
+    """Start the system"""
+    if not mlb_system.is_running:
+        mlb_system.start_system()
+        return "✅ System started!"
+    else:
+        return "ℹ️ System already running"
+
+@app.route('/stop')
+def stop_system():
+    """Stop the system"""
+    if mlb_system.is_running:
+        mlb_system.stop_system()
+        return "🛑 System stopped!"
+    else:
+        return "ℹ️ System not running"
 
 def main():
-    """Main function to start the complete system"""
+    """Main function to start the system"""
     logger.info("🚀 Initializing MLB Impact System...")
     
     try:
-        # Start the system
+        # Start the system automatically
         mlb_system.start_system()
         
         # Run Flask app

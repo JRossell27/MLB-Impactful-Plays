@@ -14,4 +14,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["python", "render_gif_web_test.py"] 
+CMD ["python", "enhanced_dashboard.py"] 
