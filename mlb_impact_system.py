@@ -10,6 +10,7 @@ import threading
 from datetime import datetime
 import pytz
 from flask import Flask
+import json
 
 # Set up logging
 logging.basicConfig(
@@ -128,14 +129,17 @@ def home():
     try:
         status = mlb_system.get_current_status()
         
-        # If enhanced tracker is available, redirect to enhanced dashboard
-        if hasattr(mlb_system, 'enhanced_tracker') and mlb_system.enhanced_tracker:
+        # Check if we should show enhanced dashboard instead
+        show_enhanced = (hasattr(mlb_system, 'enhanced_tracker') and 
+                        mlb_system.enhanced_tracker and 
+                        status.get('monitoring', False))
+        
+        if show_enhanced:
             return """
             <!DOCTYPE html>
             <html>
             <head>
                 <title>MLB Enhanced Impact System</title>
-                <meta http-equiv="refresh" content="2;url=/enhanced">
                 <style>
                     body { 
                         font-family: Arial, sans-serif; 
@@ -145,24 +149,44 @@ def home():
                         padding: 50px;
                     }
                     .loading { font-size: 24px; margin-bottom: 20px; }
-                    .info { font-size: 16px; opacity: 0.8; }
+                    .info { font-size: 16px; opacity: 0.8; margin: 10px 0; }
+                    .button { 
+                        display: inline-block; 
+                        background: #ff6b35; 
+                        color: white; 
+                        padding: 10px 20px; 
+                        text-decoration: none; 
+                        border-radius: 5px; 
+                        margin: 10px;
+                    }
                 </style>
             </head>
             <body>
-                <div class="loading">🎬 Loading Enhanced MLB Impact Tracker...</div>
-                <div class="info">Redirecting to enhanced dashboard with GIF integration...</div>
-                <div class="info">If not redirected, <a href="/enhanced" style="color: #ff6b35;">click here</a></div>
+                <div class="loading">🎬 Enhanced MLB Impact Tracker Active!</div>
+                <div class="info">✅ System is monitoring for high-impact plays</div>
+                <div class="info">🎥 GIF integration ready</div>
+                <div class="info">🐦 Twitter connected</div>
+                
+                <div style="margin-top: 30px;">
+                    <a href="/enhanced" class="button">📊 View Enhanced Dashboard</a>
+                    <a href="/debug/status" class="button">🔍 Debug Status</a>
+                    <a href="/debug/twitter" class="button">🐦 Twitter Debug</a>
+                </div>
             </body>
             </html>
             """
         
-        # Basic status page
+        # Show detailed status page if enhanced tracker not fully active
+        monitoring_status = status.get('monitoring', False)
+        processing_gifs = status.get('processing_gifs', False)
+        twitter_connected = status.get('twitter_connected', False)
+        
         html = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <title>MLB Impact System</title>
-            <meta http-equiv="refresh" content="30">
+            <meta http-equiv="refresh" content="15">
             <style>
                 body {{ 
                     font-family: Arial, sans-serif; 
@@ -171,24 +195,73 @@ def home():
                     padding: 40px;
                 }}
                 .header {{ color: #ff6b35; margin-bottom: 30px; }}
-                .status {{ background: #21262d; padding: 20px; border-radius: 8px; }}
-                .metric {{ margin: 10px 0; }}
+                .status {{ background: #21262d; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
+                .metric {{ margin: 15px 0; padding: 10px; background: #1a1a1a; border-radius: 5px; }}
                 .active {{ color: #28a745; }}
                 .inactive {{ color: #dc3545; }}
+                .warning {{ color: #ffc107; }}
+                .buttons {{ margin-top: 20px; }}
+                .button {{ 
+                    display: inline-block; 
+                    background: #ff6b35; 
+                    color: white; 
+                    padding: 8px 16px; 
+                    text-decoration: none; 
+                    border-radius: 5px; 
+                    margin: 5px;
+                }}
             </style>
         </head>
         <body>
             <h1 class="header">🎯 MLB Impact System</h1>
+            
             <div class="status">
-                <div class="metric"><strong>Status:</strong> 
+                <h3>System Status</h3>
+                <div class="metric">
+                    <strong>Overall Status:</strong> 
                     <span class="{'active' if status['system_running'] else 'inactive'}">
-                        {'🟢 RUNNING' if status['system_running'] else '🔴 STOPPED'}
+                        {'🟢 SYSTEM RUNNING' if status['system_running'] else '🔴 SYSTEM STOPPED'}
                     </span>
                 </div>
-                <div class="metric"><strong>Type:</strong> {status.get('tracker_type', 'Unknown')}</div>
-                <div class="metric"><strong>Time:</strong> {status.get('current_time', 'Unknown')}</div>
-                {'<div class="metric"><strong>Queue Size:</strong> ' + str(status.get('queue_size', 0)) + '</div>' if 'queue_size' in status else ''}
-                {'<div class="metric"><strong>Tweets Today:</strong> ' + str(status.get('tweets_posted_today', 0)) + '</div>' if 'tweets_posted_today' in status else ''}
+                
+                <div class="metric">
+                    <strong>Game Monitoring:</strong> 
+                    <span class="{'active' if monitoring_status else 'inactive'}">
+                        {'🟢 ACTIVE' if monitoring_status else '🔴 INACTIVE'}
+                    </span>
+                </div>
+                
+                <div class="metric">
+                    <strong>GIF Processing:</strong> 
+                    <span class="{'active' if processing_gifs else 'inactive'}">
+                        {'🟢 RUNNING' if processing_gifs else '🔴 STOPPED'}
+                    </span>
+                </div>
+                
+                <div class="metric">
+                    <strong>Twitter:</strong> 
+                    <span class="{'active' if twitter_connected else 'inactive'}">
+                        {'🟢 CONNECTED' if twitter_connected else '🔴 DISCONNECTED'}
+                    </span>
+                </div>
+                
+                <div class="metric"><strong>Tracker Type:</strong> {status.get('tracker_type', 'Unknown')}</div>
+                <div class="metric"><strong>Last Check:</strong> {status.get('last_check_time', 'Never')}</div>
+                <div class="metric"><strong>System Time:</strong> {status.get('current_time', 'Unknown')}</div>
+                
+                {'<div class="metric"><strong>Queue Size:</strong> ' + str(status.get('queue_size', 0)) + ' plays</div>' if 'queue_size' in status else ''}
+                {'<div class="metric"><strong>Today - Queued:</strong> ' + str(status.get('plays_queued_today', 0)) + ', GIFs: ' + str(status.get('gifs_created_today', 0)) + ', Tweets: ' + str(status.get('tweets_posted_today', 0)) + '</div>' if 'plays_queued_today' in status else ''}
+            </div>
+            
+            <div class="buttons">
+                <a href="/enhanced" class="button">📊 Enhanced Dashboard</a>
+                <a href="/debug/status" class="button">🔍 Debug Status</a>
+                <a href="/debug/twitter" class="button">🐦 Twitter Debug</a>
+                <a href="/retry-twitter" class="button">🔄 Retry Twitter</a>
+            </div>
+            
+            <div style="margin-top: 20px; font-size: 0.9em; opacity: 0.7;">
+                Page auto-refreshes every 15 seconds
             </div>
         </body>
         </html>
@@ -330,6 +403,69 @@ def stop_system():
         return "🛑 System stopped!"
     else:
         return "ℹ️ System not running"
+
+@app.route('/debug/status')
+def debug_status():
+    """Debug system status in detail"""
+    try:
+        status = mlb_system.get_current_status()
+        
+        # Get additional debug info
+        debug_info = {
+            'mlb_system_is_running': mlb_system.is_running,
+            'has_enhanced_tracker': hasattr(mlb_system, 'enhanced_tracker'),
+            'enhanced_tracker_not_none': hasattr(mlb_system, 'enhanced_tracker') and mlb_system.enhanced_tracker is not None,
+            'tracker_thread_alive': mlb_system.tracker_thread.is_alive() if mlb_system.tracker_thread else False,
+        }
+        
+        # Try to get enhanced tracker status directly
+        enhanced_status = {}
+        if hasattr(mlb_system, 'enhanced_tracker') and mlb_system.enhanced_tracker:
+            try:
+                enhanced_status = mlb_system.enhanced_tracker.get_status()
+            except Exception as e:
+                enhanced_status = {'error': str(e)}
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>System Status Debug</title>
+            <meta http-equiv="refresh" content="10">
+            <style>
+                body {{ font-family: Arial; background: #0f1419; color: white; padding: 20px; }}
+                .section {{ margin: 20px 0; padding: 15px; background: #21262d; border-radius: 8px; }}
+                .value {{ color: #28a745; }}
+                .error {{ color: #dc3545; }}
+                pre {{ background: #1a1a1a; padding: 10px; border-radius: 5px; overflow-x: auto; }}
+            </style>
+        </head>
+        <body>
+            <h1>🔍 System Status Debug</h1>
+            
+            <div class="section">
+                <h3>System Status:</h3>
+                <pre>{json.dumps(status, indent=2, default=str)}</pre>
+            </div>
+            
+            <div class="section">
+                <h3>Debug Info:</h3>
+                <pre>{json.dumps(debug_info, indent=2, default=str)}</pre>
+            </div>
+            
+            <div class="section">
+                <h3>Enhanced Tracker Status:</h3>
+                <pre>{json.dumps(enhanced_status, indent=2, default=str)}</pre>
+            </div>
+            
+            <p><a href="/" style="color: #ff6b35;">← Back to Dashboard</a></p>
+        </body>
+        </html>
+        """
+        return html
+        
+    except Exception as e:
+        return f"<h1>Debug Error</h1><pre>{str(e)}</pre>"
 
 def main():
     """Main function to start the system"""
