@@ -11,6 +11,7 @@ from datetime import datetime
 import pytz
 from flask import Flask
 import json
+import requests
 
 # Set up logging
 logging.basicConfig(
@@ -32,6 +33,8 @@ class MLBImpactSystem:
         self.enhanced_tracker = None
         self.is_running = False
         self.tracker_thread = None
+        self.ping_thread = None
+        self.keep_alive = False
     
     def start_enhanced_tracking(self):
         """Start the enhanced tracking with GIF integration"""
@@ -79,23 +82,30 @@ class MLBImpactSystem:
         # Start enhanced tracking (with fallback)
         self.start_enhanced_tracking()
         
+        # Start keep-alive ping service for Render
+        self.start_keep_alive_ping()
+        
         logger.info("✅ MLB Impact System fully operational!")
     
     def stop_system(self):
         """Stop the system"""
         logger.info("🛑 Stopping MLB Impact System...")
         self.is_running = False
+        self.keep_alive = False
         
         if hasattr(self, 'enhanced_tracker') and self.enhanced_tracker:
             self.enhanced_tracker.stop_monitoring()
         elif hasattr(self, 'basic_tracker') and self.basic_tracker:
             self.basic_tracker.stop_monitoring()
+        
+        logger.info("🛑 All services stopped")
     
     def get_current_status(self):
         """Get current system status"""
         status = {
             'system_running': self.is_running,
             'enhanced_tracker_active': hasattr(self, 'enhanced_tracker') and self.enhanced_tracker is not None,
+            'keep_alive_active': self.keep_alive,
             'current_time': datetime.now(eastern_tz).isoformat(),
             'tracker_type': 'Enhanced with GIF Integration' if hasattr(self, 'enhanced_tracker') else 'Basic Real-time',
             'last_updated': 'Unknown'
@@ -119,6 +129,46 @@ class MLBImpactSystem:
                 logger.error(f"Error getting enhanced tracker status: {e}")
         
         return status
+
+    def start_keep_alive_ping(self):
+        """Start the keep-alive ping to prevent Render spin-down"""
+        def ping_self():
+            logger.info("🏓 Starting keep-alive ping service...")
+            
+            # Try to detect the service URL from environment
+            service_url = os.getenv('RENDER_EXTERNAL_URL')
+            if not service_url:
+                # Fallback - try to construct from common patterns
+                service_name = os.getenv('RENDER_SERVICE_NAME', 'mlb-impact-system')
+                service_url = f"https://{service_name}.onrender.com"
+            
+            logger.info(f"🌐 Keep-alive target: {service_url}")
+            
+            while self.keep_alive:
+                try:
+                    # Ping the health endpoint every 10 minutes
+                    response = requests.get(f"{service_url}/health", timeout=30)
+                    if response.status_code == 200:
+                        logger.info(f"🏓 Keep-alive ping successful ({response.status_code})")
+                    else:
+                        logger.warning(f"🏓 Keep-alive ping returned {response.status_code}")
+                        
+                except requests.exceptions.RequestException as e:
+                    logger.warning(f"🏓 Keep-alive ping failed: {e}")
+                except Exception as e:
+                    logger.error(f"🏓 Keep-alive ping error: {e}")
+                
+                # Wait 10 minutes (600 seconds) before next ping
+                # Use shorter intervals to check if we should stop
+                for _ in range(120):  # 120 * 5 = 600 seconds = 10 minutes
+                    if not self.keep_alive:
+                        break
+                    time.sleep(5)
+        
+        self.keep_alive = True
+        self.ping_thread = threading.Thread(target=ping_self, daemon=True)
+        self.ping_thread.start()
+        logger.info("✅ Keep-alive ping service started")
 
 # Global system instance
 mlb_system = MLBImpactSystem()
@@ -180,6 +230,7 @@ def home():
         monitoring_status = status.get('monitoring', False)
         processing_gifs = status.get('processing_gifs', False)
         twitter_connected = status.get('twitter_connected', False)
+        keep_alive_active = status.get('keep_alive_active', False)
         
         html = f"""
         <!DOCTYPE html>
@@ -243,6 +294,14 @@ def home():
                     <span class="{'active' if twitter_connected else 'inactive'}">
                         {'🟢 CONNECTED' if twitter_connected else '🔴 DISCONNECTED'}
                     </span>
+                </div>
+                
+                <div class="metric">
+                    <strong>Keep-Alive Service:</strong> 
+                    <span class="{'active' if keep_alive_active else 'inactive'}">
+                        {'🟢 RUNNING' if keep_alive_active else '🔴 STOPPED'}
+                    </span>
+                    <span style="font-size: 0.8em; opacity: 0.7;"> (Prevents Render spin-down)</span>
                 </div>
                 
                 <div class="metric"><strong>Tracker Type:</strong> {status.get('tracker_type', 'Unknown')}</div>
@@ -408,6 +467,7 @@ def stop_system():
 def debug_status():
     """Debug system status in detail"""
     try:
+        import os
         status = mlb_system.get_current_status()
         
         # Get additional debug info
@@ -416,6 +476,10 @@ def debug_status():
             'has_enhanced_tracker': hasattr(mlb_system, 'enhanced_tracker'),
             'enhanced_tracker_not_none': hasattr(mlb_system, 'enhanced_tracker') and mlb_system.enhanced_tracker is not None,
             'tracker_thread_alive': mlb_system.tracker_thread.is_alive() if mlb_system.tracker_thread else False,
+            'keep_alive_active': mlb_system.keep_alive,
+            'ping_thread_alive': mlb_system.ping_thread.is_alive() if mlb_system.ping_thread else False,
+            'render_external_url': os.getenv('RENDER_EXTERNAL_URL', 'Not set'),
+            'render_service_name': os.getenv('RENDER_SERVICE_NAME', 'Not set')
         }
         
         # Try to get enhanced tracker status directly
