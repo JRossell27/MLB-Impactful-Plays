@@ -14,6 +14,9 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
+import csv
+from io import StringIO
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +26,9 @@ class BaseballSavantGIFIntegration:
         self.temp_dir = Path(tempfile.gettempdir()) / "baseball_gifs"
         self.temp_dir.mkdir(exist_ok=True)
         
-    def get_statcast_data_for_play(self, game_id: int, play_id: int, game_date: str) -> Optional[Dict]:
-        """Get Statcast data for a specific play to find animation URLs"""
+    def get_statcast_data_for_play(self, game_id: int, play_id: int, game_date: str, mlb_play_data: Dict = None) -> Optional[Dict]:
+        """Get Statcast data for a specific play"""
         try:
-            # Format date for Baseball Savant API
-            date_str = game_date.replace('-', '/')
-            
-            # Search for the specific play using Statcast search
             params = {
                 'all': 'true',
                 'hfPT': '',
@@ -42,7 +41,7 @@ class BaseballSavantGIFIntegration:
                 'hfNewZones': '',
                 'hfGT': 'R|',  # Regular season
                 'hfC': '',
-                'hfSea': '2024|',  # Current season
+                'hfSea': '2025|',  # Current season
                 'hfSit': '',
                 'player_type': 'batter',
                 'hfOuts': '',
@@ -78,59 +77,213 @@ class BaseballSavantGIFIntegration:
             response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
             
-            # Parse CSV data to find our specific play
-            lines = response.text.strip().split('\n')
-            if len(lines) < 2:
-                return None
+            # Parse CSV data
+            csv_reader = csv.DictReader(StringIO(response.text))
+            
+            # Get all plays with events (not just pitches)
+            plays_with_events = []
+            for row in csv_reader:
+                if row.get('events'):  # Only rows with actual events
+                    plays_with_events.append(row)
+            
+            logger.info(f"Found {len(plays_with_events)} plays with events for game {game_id}")
+            
+            # If we have MLB play data to match against, try to find the exact play
+            if mlb_play_data:
+                target_event = mlb_play_data.get('result', {}).get('event', '').lower()
+                target_inning = mlb_play_data.get('about', {}).get('inning')
+                target_batter = mlb_play_data.get('matchup', {}).get('batter', {}).get('id')
                 
-            headers = lines[0].split(',')
+                logger.info(f"Looking for play: {target_event} in inning {target_inning}")
+                
+                # Try to find exact match
+                for play in plays_with_events:
+                    event = play.get('events', '').lower()
+                    inning = play.get('inning')
+                    batter_id = play.get('batter')
+                    
+                    # Match by event type and inning
+                    if (target_event in event or event in target_event) and str(inning) == str(target_inning):
+                        logger.info(f"Found matching play: {event} in inning {inning}")
+                        return play
+                
+                # If no exact match, try just by event type
+                for play in plays_with_events:
+                    event = play.get('events', '').lower()
+                    if target_event in event or event in target_event:
+                        logger.info(f"Found play by event type: {event}")
+                        return play
             
-            for line in lines[1:]:
-                values = line.split(',')
-                if len(values) >= len(headers):
-                    play_data = dict(zip(headers, values))
-                    # Match by at_bat_number or sv_id
-                    if play_data.get('at_bat_number') == str(play_id):
-                        return play_data
+            # Fallback: prioritize visually interesting plays
+            for play in plays_with_events:
+                event = play.get('events', '').lower()
+                # Prioritize visually interesting plays
+                if any(keyword in event for keyword in ['home_run', 'double', 'triple', 'single']):
+                    logger.info(f"Found interesting play: {event}")
+                    return play
             
+            # If no interesting plays, return the first play with events
+            if plays_with_events:
+                logger.info(f"Returning first available play: {plays_with_events[0].get('events')}")
+                return plays_with_events[0]
+            
+            logger.warning(f"No plays with events found for game {game_id}")
             return None
             
         except Exception as e:
             logger.error(f"Error fetching Statcast data: {e}")
             return None
     
-    def get_play_animation_url(self, game_id: int, play_id: int, statcast_data: Dict) -> Optional[str]:
+    def get_play_animation_url(self, game_id: int, play_id: int, statcast_data: Dict, mlb_play_data: Dict = None) -> Optional[str]:
         """Get the animation URL for a specific play from Baseball Savant"""
         try:
-            # Baseball Savant animations are typically available at patterns like:
-            # https://baseballsavant.mlb.com/sporty-videos/[game_id]/[play_data]
+            # We need to get the play UUID from the Baseball Savant /gf endpoint
+            # since the Statcast CSV doesn't include it
             
-            # Try to construct the animation URL based on game and play data
-            sv_id = statcast_data.get('sv_id', '')
-            at_bat_number = statcast_data.get('at_bat_number', '')
+            logger.info(f"Getting play UUID for game {game_id}, play {play_id}")
             
-            if not sv_id and not at_bat_number:
-                logger.warning(f"No sv_id or at_bat_number found for play {play_id}")
+            # Get game data from Baseball Savant /gf endpoint
+            gf_url = f"{self.savant_base}/gf?game_pk={game_id}&at_bat_number=1"
+            gf_response = requests.get(gf_url, timeout=15)
+            
+            if gf_response.status_code != 200:
+                logger.warning(f"Failed to get game data from /gf endpoint: {gf_response.status_code}")
                 return None
             
-            # Try different URL patterns Baseball Savant uses
-            potential_urls = [
-                f"{self.savant_base}/sporty-videos/{game_id}/{sv_id}.mp4",
-                f"{self.savant_base}/videos/{game_id}/{at_bat_number}.mp4",
-                f"{self.savant_base}/illustrator/download?game_pk={game_id}&sv_id={sv_id}",
-            ]
+            gf_data = gf_response.json()
             
-            for url in potential_urls:
-                try:
-                    response = requests.head(url, timeout=10)
-                    if response.status_code == 200:
-                        logger.info(f"Found animation at: {url}")
-                        return url
-                except:
-                    continue
+            # Look in both home and away team plays
+            all_plays = []
+            all_plays.extend(gf_data.get('team_home', []))
+            all_plays.extend(gf_data.get('team_away', []))
             
-            # If direct URLs don't work, try the illustrator tool
-            return self._get_illustrator_animation(game_id, statcast_data)
+            logger.info(f"Found {len(all_plays)} total plays in game data")
+            
+            # Find the matching play using MLB API data if available
+            target_play_uuid = None
+            
+            if mlb_play_data:
+                target_event = mlb_play_data.get('result', {}).get('event', '').lower()
+                target_inning = mlb_play_data.get('about', {}).get('inning')
+                target_batter = mlb_play_data.get('matchup', {}).get('batter', {}).get('fullName', '')
+                
+                logger.info(f"Looking for {target_batter} {target_event} in inning {target_inning}")
+                
+                # Try to find exact match - prioritize plays that have the actual event in their description
+                best_matches = []
+                for play in all_plays:
+                    play_event = play.get('events', '').lower()
+                    play_description = play.get('des', '').lower()
+                    play_inning = play.get('inning')
+                    play_batter = play.get('batter_name', '')
+                    play_uuid = play.get('play_id')
+                    
+                    # Must match inning and have a play UUID
+                    if str(play_inning) == str(target_inning) and play_uuid:
+                        # Check if batter matches
+                        batter_match = (target_batter.split()[-1].lower() in play_batter.lower() or 
+                                      play_batter.split()[-1].lower() in target_batter.lower())
+                        
+                        if batter_match:
+                            # Score this match based on how well it matches the event
+                            score = 0
+                            
+                            # HIGHEST PRIORITY: This is the actual contact pitch (not just a pitch in the at-bat)
+                            pitch_call = play.get('pitch_call', '')
+                            call = play.get('call', '')
+                            if pitch_call == 'hit_into_play' or call == 'X':
+                                score += 1000  # Heavily prioritize the contact pitch
+                            
+                            # High priority: event description contains the target event
+                            if target_event in play_description or target_event.replace(' ', '') in play_description.replace(' ', ''):
+                                score += 100
+                            
+                            # Medium priority: events field contains the target event  
+                            if target_event in play_event or target_event.replace(' ', '') in play_event.replace(' ', ''):
+                                score += 50
+                            
+                            # For home runs, look for specific indicators
+                            if 'home' in target_event and 'run' in target_event:
+                                if 'homer' in play_description or 'home run' in play_description:
+                                    score += 100
+                                if 'homer' in play_event or 'home run' in play_event:
+                                    score += 50
+                                
+                                # Additional bonus for hit data which confirms this was the contact pitch
+                                if play.get('hit_speed') or play.get('hit_distance'):
+                                    score += 500
+                            
+                            # Bonus for exact event match
+                            if play_event.strip() == target_event.strip():
+                                score += 200
+                            
+                            best_matches.append((score, play, play_uuid))
+                            logger.info(f"Found potential match (score {score}): {play_batter} - {play_event} - pitch_call: {pitch_call} - {play_description[:50]}...")
+                
+                # Sort by score and take the best match
+                if best_matches:
+                    best_matches.sort(key=lambda x: x[0], reverse=True)
+                    best_score, best_play, target_play_uuid = best_matches[0]
+                    
+                    logger.info(f"Selected best match (score {best_score}): {best_play.get('batter_name')} - {best_play.get('events')}")
+                    logger.info(f"Play UUID: {target_play_uuid}")
+            
+            # Fallback: look for interesting plays if no exact match
+            if not target_play_uuid:
+                logger.info("No exact match found, looking for interesting plays...")
+                for play in all_plays:
+                    play_event = play.get('events', '').lower()
+                    play_uuid = play.get('play_id')
+                    
+                    if play_uuid and any(keyword in play_event for keyword in ['home run', 'double', 'triple']):
+                        logger.info(f"Found interesting play: {play_event}")
+                        target_play_uuid = play_uuid
+                        break
+            
+            if not target_play_uuid:
+                logger.warning("No suitable play with UUID found")
+                return None
+            
+            # Now get the video URL using the UUID
+            logger.info(f"Getting video URL for play UUID: {target_play_uuid}")
+            
+            sporty_url = f"{self.savant_base}/sporty-videos?playId={target_play_uuid}"
+            response = requests.get(sporty_url, timeout=15)
+            
+            if response.status_code == 200:
+                html_content = response.text
+                logger.info(f"Got video page ({len(html_content)} chars)")
+                
+                # Extract the actual video URL from the HTML
+                video_url_patterns = [
+                    r'https://sporty-clips\.mlb\.com/[^"\s]*\.mp4',
+                    r'"src":\s*"(https://sporty-clips\.mlb\.com/[^"]*\.mp4)"',
+                    r'data-src="(https://sporty-clips\.mlb\.com/[^"]*\.mp4)"',
+                ]
+                
+                for pattern in video_url_patterns:
+                    matches = re.findall(pattern, html_content, re.IGNORECASE)
+                    for match in matches:
+                        video_url = match[0] if isinstance(match, tuple) else match
+                        logger.info(f"Found potential video URL: {video_url}")
+                        
+                        # Test if this URL actually works
+                        try:
+                            test_response = requests.head(video_url, timeout=10)
+                            if test_response.status_code == 200:
+                                content_type = test_response.headers.get('content-type', '')
+                                if 'video' in content_type:
+                                    logger.info(f"✅ Confirmed working video URL: {video_url}")
+                                    return video_url
+                        except Exception as e:
+                            logger.warning(f"Video URL test failed: {e}")
+                            continue
+                
+                logger.warning(f"No working video URL found in HTML")
+                return None
+            else:
+                logger.warning(f"Failed to fetch video page: {response.status_code}")
+                return None
             
         except Exception as e:
             logger.error(f"Error getting animation URL: {e}")
@@ -221,36 +374,39 @@ class BaseballSavantGIFIntegration:
             logger.error(f"Error creating GIF: {e}")
             return False
     
-    def get_gif_for_play(self, game_id: int, play_id: int, game_date: str, max_wait_minutes: int = 30) -> Optional[str]:
-        """
-        Main method to get GIF for a play
-        Returns path to GIF file if successful, None otherwise
-        """
-        # Check if we should even try (animations take time to be available)
-        play_time = datetime.now()  # In real implementation, get actual play time
-        
-        # Wait for animation to be available (Baseball Savant typically takes 15-30 min)
-        if max_wait_minutes > 0:
-            logger.info(f"Waiting up to {max_wait_minutes} minutes for animation to be available...")
+    def get_gif_for_play(self, game_id: int, play_id: int, game_date: str, mlb_play_data: Dict = None) -> Optional[str]:
+        """Create a GIF for a specific play and return the file path"""
+        try:
+            logger.info(f"Creating GIF for game {game_id}, play {play_id}")
             
-            for attempt in range(max_wait_minutes):
-                statcast_data = self.get_statcast_data_for_play(game_id, play_id, game_date)
+            # Step 1: Get Statcast data for the play
+            statcast_data = self.get_statcast_data_for_play(game_id, play_id, game_date, mlb_play_data)
+            if not statcast_data:
+                logger.warning(f"No Statcast data found for play {play_id}")
+                return None
+            
+            # Step 2: Get the animation URL
+            animation_url = self.get_play_animation_url(game_id, play_id, statcast_data, mlb_play_data)
+            if not animation_url:
+                logger.warning(f"No animation URL found for play {play_id}")
+                return None
                 
-                if statcast_data:
-                    animation_url = self.get_play_animation_url(game_id, play_id, statcast_data)
-                    
-                    if animation_url:
-                        # Create GIF
-                        gif_path = self.temp_dir / f"play_{game_id}_{play_id}.gif"
-                        
-                        if self.download_and_convert_to_gif(animation_url, str(gif_path)):
-                            return str(gif_path)
+            # Step 3: Create the GIF
+            gif_filename = f"play_{game_id}_{play_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.gif"
+            gif_path = self.temp_dir / gif_filename
+            
+            success = self.download_and_convert_to_gif(animation_url, str(gif_path))
+            
+            if success and gif_path.exists():
+                logger.info(f"Successfully created GIF: {gif_path}")
+                return str(gif_path)
+            else:
+                logger.error(f"Failed to create GIF for play {play_id}")
+                return None
                 
-                if attempt < max_wait_minutes - 1:
-                    time.sleep(60)  # Wait 1 minute between attempts
-        
-        logger.warning(f"Could not create GIF for play {play_id} in game {game_id}")
-        return None
+        except Exception as e:
+            logger.error(f"Error creating GIF for play {play_id}: {e}")
+            return None
     
     def create_follow_up_tweet_with_gif(self, original_tweet_id: str, gif_path: str, play_description: str) -> bool:
         """Create a follow-up tweet with the GIF"""
@@ -306,7 +462,7 @@ def _post_delayed_gif_tweet(self, original_tweet_id: str, play: Dict, game_info:
             game_id=play['game_id'],
             play_id=play['play_id'],
             game_date=datetime.now().strftime('%Y-%m-%d'),
-            max_wait_minutes=30
+            mlb_play_data=play
         )
         
         if gif_path:
@@ -331,7 +487,7 @@ if __name__ == "__main__":
     #     game_id=123456,
     #     play_id=5,
     #     game_date='2024-01-15',
-    #     max_wait_minutes=5
+    #     mlb_play_data=play_data
     # )
     
     print("Baseball Savant GIF integration module loaded successfully!") 
