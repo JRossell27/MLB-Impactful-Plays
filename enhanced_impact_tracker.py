@@ -10,14 +10,16 @@ import time
 import json
 import logging
 import requests
-import tweepy
-import threading
+import csv
+from io import StringIO
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Set
-from dataclasses import dataclass, asdict
-from pathlib import Path
 import pickle
+from dataclasses import dataclass, asdict
+import threading
+import signal
 from baseball_savant_gif_integration import BaseballSavantGIFIntegration
+from discord_integration import discord_poster
 
 # Configure logging
 logging.basicConfig(
@@ -78,7 +80,6 @@ class EnhancedImpactTracker:
     def __init__(self):
         self.api_base = "https://statsapi.mlb.com/api/v1.1"
         self.schedule_api_base = "https://statsapi.mlb.com/api/v1"  # Schedule uses v1 API
-        self.twitter_api = self.setup_twitter()
         self.gif_integration = BaseballSavantGIFIntegration()
         
         # Queue management - Memory conscious settings for 512MB deployment
@@ -113,51 +114,6 @@ class EnhancedImpactTracker:
             'COL': '#Rockies', 'KC': '#Royals', 'DET': '#Tigers', 'MIN': '#Twins',
             'CWS': '#WhiteSox', 'NYY': '#Yankees'
         }
-    
-    def setup_twitter(self):
-        """Initialize Twitter API connection"""
-        try:
-            # Check for both naming conventions
-            consumer_key = os.getenv('TWITTER_CONSUMER_KEY') or os.getenv('TWITTER_API_KEY')
-            consumer_secret = os.getenv('TWITTER_CONSUMER_SECRET') or os.getenv('TWITTER_API_SECRET')
-            access_token = os.getenv('TWITTER_ACCESS_TOKEN')
-            access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
-            
-            missing_vars = []
-            if not consumer_key:
-                missing_vars.append('TWITTER_CONSUMER_KEY (or TWITTER_API_KEY)')
-            if not consumer_secret:
-                missing_vars.append('TWITTER_CONSUMER_SECRET (or TWITTER_API_SECRET)')
-            if not access_token:
-                missing_vars.append('TWITTER_ACCESS_TOKEN')
-            if not access_token_secret:
-                missing_vars.append('TWITTER_ACCESS_TOKEN_SECRET')
-            
-            if missing_vars:
-                logger.warning(f"Twitter credentials not found in environment variables: {', '.join(missing_vars)}")
-                return None
-            
-            auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
-            auth.set_access_token(access_token, access_token_secret)
-            
-            api = tweepy.API(auth, wait_on_rate_limit=True)
-            
-            # Test the connection
-            api.verify_credentials()
-            logger.info("✅ Twitter API connected successfully")
-            return api
-            
-        except Exception as e:
-            logger.error(f"Twitter API setup failed: {e}")
-            return None
-    
-    def retry_twitter_setup(self):
-        """Retry Twitter setup - useful if credentials weren't available at startup"""
-        if self.twitter_api is None:
-            logger.info("🔄 Retrying Twitter API setup...")
-            self.twitter_api = self.setup_twitter()
-            return self.twitter_api is not None
-        return True
     
     def load_queue(self):
         """Load the play queue from disk"""
@@ -280,11 +236,6 @@ class EnhancedImpactTracker:
         This is the actual WP% change that Baseball Savant calculates
         """
         try:
-            import requests
-            import csv
-            from io import StringIO
-            from datetime import datetime
-            
             # Get game date from the game_id using MLB API
             try:
                 # Check if we have a test_date override (for historical testing)
@@ -684,89 +635,49 @@ class EnhancedImpactTracker:
             logger.error(f"Error queueing play: {e}")
             return False
     
-    def format_complete_tweet_text(self, queued_play: QueuedPlay) -> str:
-        """Format tweet text for the complete post with GIF"""
+    def post_to_discord(self, queued_play: QueuedPlay) -> bool:
+        """Post the high-impact play to Discord with GIF and formatted text"""
         try:
-            description = queued_play.description
-            # Truncate if too long to leave room for other content
-            if len(description) > 100:
-                description = description[:97] + "..."
+            # Prepare play data for Discord formatting
+            play_data = {
+                'event': queued_play.event,
+                'impact_score': queued_play.impact_score,
+                'away_team': queued_play.away_team,
+                'home_team': queued_play.home_team,
+                'away_score': queued_play.away_score,
+                'home_score': queued_play.home_score,
+                'inning': queued_play.inning,
+                'half_inning': queued_play.half_inning,
+                'description': queued_play.description,
+                'batter': queued_play.batter,
+                'pitcher': queued_play.pitcher,
+                'leverage_index': queued_play.leverage_index,
+                'wpa': queued_play.wpa
+            }
             
-            inning_text = f"{'T' if queued_play.half_inning == 'top' else 'B'}{queued_play.inning}"
+            # Post to Discord with GIF if available
+            gif_path = None
+            if queued_play.gif_path and os.path.exists(queued_play.gif_path):
+                gif_path = queued_play.gif_path
             
-            tweet = f"⭐ MARQUEE MOMENT!\n\n"
-            tweet += f"{description}\n\n"
-            tweet += f"📊 Impact: {queued_play.impact_score:.1%} WP change\n"
-            tweet += f"⚾ {queued_play.away_team} {queued_play.away_score} - {queued_play.home_score} {queued_play.home_team} ({inning_text})\n\n"
+            success = discord_poster.post_impact_play(play_data, gif_path)
             
-            # Add official team hashtags
-            hashtags = []
-            if queued_play.away_team in self.team_hashtags:
-                hashtags.append(self.team_hashtags[queued_play.away_team])
-            if queued_play.home_team in self.team_hashtags and queued_play.home_team != queued_play.away_team:
-                hashtags.append(self.team_hashtags[queued_play.home_team])
-            
-            if hashtags:
-                tweet += " ".join(hashtags)
-            else:
-                tweet += "#MLB"
-            
-            return tweet
-            
-        except Exception as e:
-            logger.error(f"Error formatting tweet: {e}")
-            return "Marquee moment detected! ⭐"
-    
-    def post_complete_tweet_with_gif(self, queued_play: QueuedPlay) -> bool:
-        """Post the complete tweet with both text and GIF"""
-        try:
-            if not self.twitter_api:
-                logger.warning("Twitter API not available")
-                return False
-            
-            if not queued_play.gif_path or not os.path.exists(queued_play.gif_path):
-                logger.error(f"GIF file not found: {queued_play.gif_path}")
-                return False
-            
-            # Format tweet text
-            tweet_text = self.format_complete_tweet_text(queued_play)
-            
-            # Upload GIF
-            try:
-                media = self.twitter_api.media_upload(queued_play.gif_path)
-                logger.info(f"✅ GIF uploaded to Twitter: {media.media_id}")
+            if success:
+                queued_play.tweet_posted = True  # Keep this name for compatibility
+                self.tweets_posted_today += 1   # Count Discord posts same as tweets
                 
-                # Post tweet with GIF
-                tweet = self.twitter_api.update_status(
-                    status=tweet_text,
-                    media_ids=[media.media_id]
-                )
-                
-                queued_play.tweet_posted = True
-                self.tweets_posted_today += 1
-                
-                logger.info(f"🎉 COMPLETE TWEET POSTED!")
-                logger.info(f"   Tweet ID: {tweet.id}")
+                logger.info(f"🎉 POSTED TO DISCORD!")
                 logger.info(f"   Play: {queued_play.event}")
                 logger.info(f"   Impact: {queued_play.impact_score:.1%}")
-                
-                # Immediately post the complete tweet
-                if self.post_complete_tweet_with_gif(queued_play):
-                    logger.info(f"🎉 Complete tweet posted for {queued_play.play_id}")
-                    
-                    # Aggressive cleanup for memory conservation
-                    self.cleanup_completed_play(queued_play)
-                else:
-                    logger.error(f"❌ Failed to post tweet for {queued_play.play_id}")
+                logger.info(f"   Teams: {queued_play.away_team} @ {queued_play.home_team}")
                 
                 return True
-                
-            except Exception as e:
-                logger.error(f"Failed to upload GIF or post tweet: {e}")
+            else:
+                logger.error(f"❌ Failed to post to Discord for {queued_play.play_id}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error posting complete tweet: {e}")
+            logger.error(f"Error posting to Discord: {e}")
             return False
     
     def process_gif_queue(self):
@@ -815,7 +726,7 @@ class EnhancedImpactTracker:
                             logger.info(f"✅ GIF created successfully for {queued_play.play_id}")
                             
                             # Immediately post the complete tweet
-                            if self.post_complete_tweet_with_gif(queued_play):
+                            if self.post_to_discord(queued_play):
                                 logger.info(f"🎉 Complete tweet posted for {queued_play.play_id}")
                                 
                                 # Aggressive cleanup for memory conservation
@@ -964,7 +875,6 @@ class EnhancedImpactTracker:
         status = {
             'monitoring': self.monitoring,
             'processing_gifs': self.processing_gifs,
-            'twitter_connected': self.twitter_api is not None,
             'last_check_time': self.last_check_time.strftime('%Y-%m-%d %H:%M:%S ET') if self.last_check_time else 'Never',
             'uptime': str(datetime.now() - self.start_time).split('.')[0] if self.start_time else 'Not started',
             'plays_queued_today': self.plays_queued_today,
