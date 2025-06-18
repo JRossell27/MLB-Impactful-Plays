@@ -21,16 +21,30 @@ import signal
 from baseball_savant_gif_integration import BaseballSavantGIFIntegration
 from discord_integration import discord_poster
 
-# Configure logging
+# Configure comprehensive logging for autonomous operation
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('enhanced_impact_tracker.log'),
         logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Set up detailed logging for key components
+requests_logger = logging.getLogger('requests')
+requests_logger.setLevel(logging.WARNING)  # Reduce noise from HTTP requests
+
+# Log system startup
+logger.info("🚀 " + "="*60)
+logger.info("🚀 ENHANCED MLB IMPACT TRACKER STARTING UP")
+logger.info("🚀 " + "="*60)
+logger.info(f"🚀 Python version: {sys.version}")
+logger.info(f"🚀 Working directory: {os.getcwd()}")
+logger.info(f"🚀 Log file: enhanced_impact_tracker.log")
+logger.info(f"🚀 Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S ET')}")
+logger.info("🚀 " + "="*60)
 
 @dataclass
 class QueuedPlay:
@@ -114,6 +128,100 @@ class EnhancedImpactTracker:
             'COL': '#Rockies', 'KC': '#Royals', 'DET': '#Tigers', 'MIN': '#Twins',
             'CWS': '#WhiteSox', 'NYY': '#Yankees'
         }
+        
+        # Perform startup health check
+        self.startup_health_check()
+    
+    def startup_health_check(self):
+        """Perform comprehensive system health check at startup"""
+        logger.info("🏥 " + "="*50)
+        logger.info("🏥 SYSTEM HEALTH CHECK")
+        logger.info("🏥 " + "="*50)
+        
+        health_status = {"healthy": True, "issues": []}
+        
+        # Check MLB API connectivity
+        try:
+            logger.info("🏥 Testing MLB API connectivity...")
+            test_url = f"{self.schedule_api_base}/schedule"
+            test_params = {'sportId': 1, 'date': datetime.now().strftime('%Y-%m-%d')}
+            response = requests.get(test_url, params=test_params, timeout=10)
+            if response.status_code == 200:
+                logger.info("✅ MLB API: Connected successfully")
+            else:
+                logger.warning(f"⚠️  MLB API: Non-200 response ({response.status_code})")
+                health_status["issues"].append("MLB API connectivity")
+        except Exception as e:
+            logger.error(f"❌ MLB API: Connection failed - {e}")
+            health_status["healthy"] = False
+            health_status["issues"].append("MLB API connectivity")
+        
+        # Check Baseball Savant GIF integration
+        try:
+            logger.info("🏥 Testing Baseball Savant GIF integration...")
+            # Just test that the integration can be initialized
+            if hasattr(self.gif_integration, 'session'):
+                logger.info("✅ Baseball Savant GIF: Integration initialized")
+            else:
+                logger.warning("⚠️  Baseball Savant GIF: Integration may have issues")
+                health_status["issues"].append("GIF integration")
+        except Exception as e:
+            logger.error(f"❌ Baseball Savant GIF: Integration failed - {e}")
+            health_status["issues"].append("GIF integration")
+        
+        # Check Discord integration
+        try:
+            logger.info("🏥 Testing Discord webhook...")
+            from discord_integration import discord_poster
+            if discord_poster and discord_poster.webhook_url:
+                logger.info("✅ Discord: Webhook configured")
+            else:
+                logger.warning("⚠️  Discord: Webhook not properly configured")
+                health_status["issues"].append("Discord webhook")
+        except Exception as e:
+            logger.error(f"❌ Discord: Integration failed - {e}")
+            health_status["issues"].append("Discord integration")
+        
+        # Check file system permissions
+        try:
+            logger.info("🏥 Testing file system permissions...")
+            test_file = "health_check_test.tmp"
+            with open(test_file, 'w') as f:
+                f.write("test")
+            os.remove(test_file)
+            logger.info("✅ File System: Read/write permissions OK")
+        except Exception as e:
+            logger.error(f"❌ File System: Permission issues - {e}")
+            health_status["healthy"] = False
+            health_status["issues"].append("File system permissions")
+        
+        # Check memory and system resources
+        try:
+            logger.info("🏥 Checking system resources...")
+            import psutil
+            memory = psutil.virtual_memory()
+            logger.info(f"✅ Memory: {memory.available / (1024**3):.1f}GB available ({memory.percent}% used)")
+        except ImportError:
+            logger.debug("📊 psutil not available - skipping detailed resource check")
+        except Exception as e:
+            logger.warning(f"⚠️  Resource check failed: {e}")
+        
+        # Log final health status
+        logger.info("🏥 " + "="*50)
+        if health_status["healthy"] and len(health_status["issues"]) == 0:
+            logger.info("🏥 SYSTEM HEALTH: ✅ ALL SYSTEMS OPERATIONAL")
+            logger.info("🏥 Ready for autonomous monitoring")
+        elif len(health_status["issues"]) > 0:
+            logger.warning(f"🏥 SYSTEM HEALTH: ⚠️  {len(health_status['issues'])} ISSUES DETECTED")
+            for issue in health_status["issues"]:
+                logger.warning(f"🏥   - {issue}")
+            logger.warning("🏥 System will start but some features may not work properly")
+        else:
+            logger.error("🏥 SYSTEM HEALTH: ❌ CRITICAL ISSUES DETECTED")
+            logger.error("🏥 System may not function properly")
+        logger.info("🏥 " + "="*50)
+        
+        return health_status
     
     def load_queue(self):
         """Load the play queue from disk"""
@@ -681,12 +789,34 @@ class EnhancedImpactTracker:
             return False
     
     def process_gif_queue(self):
-        """Process queued plays to create GIFs and post tweets"""
-        logger.info("🎬 Starting GIF processing thread...")
+        """Process queued plays to create GIFs and post to Discord with comprehensive logging"""
+        logger.info("🎬 " + "="*50)
+        logger.info("🎬 GIF PROCESSING THREAD STARTED")
+        logger.info("🎬 " + "="*50)
+        logger.info("🎬 Will process queued high-impact plays for GIF creation")
+        logger.info("🎬 Checking queue every 60 seconds for new plays")
+        logger.info("🎬 " + "="*50)
+        
+        processing_cycle = 0
+        last_queue_status_log = datetime.now()
         
         while self.processing_gifs:
             try:
+                processing_cycle += 1
+                logger.debug(f"🎬 GIF processing cycle #{processing_cycle}")
+                
+                # Log queue status every 10 minutes
+                if (datetime.now() - last_queue_status_log).total_seconds() > 600:
+                    queue_size = len(self.play_queue)
+                    unprocessed = len([play for play in self.play_queue if not play.tweet_posted])
+                    if queue_size > 0:
+                        logger.info(f"🎬 QUEUE STATUS: {unprocessed}/{queue_size} plays pending processing")
+                    else:
+                        logger.debug("🎬 Queue empty - waiting for high-impact plays")
+                    last_queue_status_log = datetime.now()
+                
                 # Process plays in queue
+                plays_processed_this_cycle = 0
                 for i, queued_play in enumerate(self.play_queue):
                     if queued_play.tweet_posted:
                         continue
@@ -701,16 +831,28 @@ class EnhancedImpactTracker:
                     
                     # Give up after max attempts
                     if queued_play.gif_attempts >= queued_play.max_attempts:
-                        logger.warning(f"❌ Giving up on GIF for play {queued_play.play_id} after {queued_play.max_attempts} attempts")
+                        if queued_play.gif_attempts == queued_play.max_attempts:  # Log only once
+                            logger.warning(f"🎬 Giving up on GIF for play {queued_play.play_id}")
+                            logger.warning(f"   Event: {queued_play.event}")
+                            logger.warning(f"   Teams: {queued_play.away_team} @ {queued_play.home_team}")
+                            logger.warning(f"   Max attempts ({queued_play.max_attempts}) reached")
                         continue
                     
                     # Try to create GIF
-                    logger.info(f"🎬 Attempting to create GIF for play {queued_play.play_id} (attempt {queued_play.gif_attempts + 1})")
+                    plays_processed_this_cycle += 1
+                    attempt_num = queued_play.gif_attempts + 1
+                    
+                    logger.info(f"🎬 Processing play {queued_play.play_id} (attempt {attempt_num}/{queued_play.max_attempts})")
+                    logger.info(f"   Event: {queued_play.event}")
+                    logger.info(f"   Impact: {queued_play.impact_score:.1%}")
+                    logger.info(f"   Teams: {queued_play.away_team} @ {queued_play.home_team}")
+                    logger.info(f"   Game ID: {queued_play.game_id}")
                     
                     queued_play.gif_attempts += 1
                     queued_play.last_attempt = now
                     
                     try:
+                        logger.debug(f"🎬 Requesting GIF from Baseball Savant...")
                         gif_path = self.gif_integration.get_gif_for_play(
                             game_id=queued_play.game_id,
                             play_id=queued_play.mlb_play_data.get('atBatIndex', 0),
@@ -723,34 +865,61 @@ class EnhancedImpactTracker:
                             queued_play.gif_path = gif_path
                             self.gifs_created_today += 1
                             
-                            logger.info(f"✅ GIF created successfully for {queued_play.play_id}")
+                            file_size = os.path.getsize(gif_path) / (1024 * 1024)  # MB
+                            logger.info(f"✅ GIF created successfully!")
+                            logger.info(f"   File: {gif_path}")
+                            logger.info(f"   Size: {file_size:.1f}MB")
+                            logger.info(f"   Daily GIF count: {self.gifs_created_today}")
                             
-                            # Immediately post the complete tweet
+                            # Immediately post the complete message to Discord
+                            logger.info(f"📤 Posting to Discord with GIF...")
                             if self.post_to_discord(queued_play):
-                                logger.info(f"🎉 Complete tweet posted for {queued_play.play_id}")
+                                logger.info(f"🎉 SUCCESSFULLY POSTED TO DISCORD!")
+                                logger.info(f"   Play: {queued_play.event}")
+                                logger.info(f"   Impact: {queued_play.impact_score:.1%}")
+                                logger.info(f"   Teams: {queued_play.away_team} @ {queued_play.home_team}")
+                                logger.info(f"   Daily Discord posts: {self.tweets_posted_today}")
                                 
                                 # Aggressive cleanup for memory conservation
                                 self.cleanup_completed_play(queued_play)
                             else:
-                                logger.error(f"❌ Failed to post tweet for {queued_play.play_id}")
+                                logger.error(f"❌ Failed to post to Discord for {queued_play.play_id}")
+                                logger.error(f"   Will retry GIF creation on next cycle")
                         else:
                             logger.warning(f"⏳ GIF not yet available for play {queued_play.play_id}")
+                            logger.debug(f"   This is normal - videos may take time to become available")
+                            logger.debug(f"   Will retry in next processing cycle")
                     
                     except Exception as e:
-                        logger.error(f"Error creating GIF for play {queued_play.play_id}: {e}")
+                        logger.error(f"❌ Error creating GIF for play {queued_play.play_id}: {e}")
+                        logger.error(f"   Exception type: {type(e).__name__}")
+                        logger.debug(f"   Will retry on next cycle (attempt {attempt_num}/{queued_play.max_attempts})")
                     
                     # Save queue state after each attempt
                     self.save_queue()
                 
                 # Clean up completed plays from queue
+                initial_queue_size = len(self.play_queue)
                 self.play_queue = [play for play in self.play_queue if not play.tweet_posted]
+                completed_plays = initial_queue_size - len(self.play_queue)
+                
+                if completed_plays > 0:
+                    logger.info(f"🧹 Cleaned up {completed_plays} completed plays from queue")
+                
+                if plays_processed_this_cycle > 0:
+                    logger.debug(f"🎬 Cycle #{processing_cycle} complete: processed {plays_processed_this_cycle} plays")
                 
                 # Sleep before next processing cycle
+                logger.debug("🎬 Sleeping 60s before next processing cycle...")
                 time.sleep(60)  # Check every minute for GIF creation
                 
             except Exception as e:
-                logger.error(f"Error in GIF processing loop: {e}")
+                logger.error(f"❌ Error in GIF processing loop (cycle #{processing_cycle}): {e}")
+                logger.error(f"   Exception type: {type(e).__name__}")
+                logger.info("🔄 GIF processing will continue in 60 seconds...")
                 time.sleep(60)
+        
+        logger.info("🎬 GIF processing thread stopped")
     
     def cleanup_completed_play(self, queued_play: QueuedPlay):
         """Aggressively clean up resources for a completed play"""
@@ -772,9 +941,18 @@ class EnhancedImpactTracker:
             logger.warning(f"Error during cleanup: {e}")
     
     def monitor_games(self):
-        """Main monitoring loop - checks every 2 minutes for high-impact plays"""
-        logger.info("🚀 Starting enhanced impact monitoring with GIF integration...")
-        logger.info("🔄 Continuous monitoring: Will check for MLB games every 2 minutes year-round")
+        """Main monitoring loop - checks every 2 minutes for high-impact plays with comprehensive logging"""
+        logger.info("🚀 " + "="*80)
+        logger.info("🚀 STARTING AUTONOMOUS MLB IMPACT MONITORING SYSTEM")
+        logger.info("🚀 " + "="*80)
+        logger.info("🔄 Monitoring Strategy:")
+        logger.info("   • Scans for MLB games every 2 minutes year-round")
+        logger.info("   • Uses Baseball Savant WP% data for impact scoring")
+        logger.info("   • 40% WP threshold for high-impact plays")
+        logger.info("   • Automatic GIF creation and Discord posting")
+        logger.info("   • Continuous operation with detailed logging")
+        logger.info("🚀 " + "="*80)
+        
         self.monitoring = True
         self.processing_gifs = True
         self.start_time = datetime.now()
@@ -782,26 +960,71 @@ class EnhancedImpactTracker:
         # Start GIF processing thread
         gif_thread = threading.Thread(target=self.process_gif_queue, daemon=True)
         gif_thread.start()
+        logger.info("🎬 GIF processing thread started")
         
         scan_count = 0
+        last_heartbeat = datetime.now()
+        heartbeat_interval = 600  # 10 minutes
+        last_game_found = None
+        consecutive_empty_scans = 0
         
         while self.monitoring:
             try:
                 scan_count += 1
-                start_time = time.time()
+                scan_start_time = time.time()
                 self.last_check_time = datetime.now()
+                current_time_str = self.last_check_time.strftime('%Y-%m-%d %H:%M:%S ET')
                 
-                logger.debug(f"🔍 Starting scan #{scan_count} at {self.last_check_time.strftime('%H:%M:%S')}")
+                # Heartbeat logging every 10 minutes
+                if (datetime.now() - last_heartbeat).total_seconds() > heartbeat_interval:
+                    logger.info("💗 " + "="*60)
+                    logger.info(f"💗 SYSTEM HEARTBEAT - {current_time_str}")
+                    logger.info(f"💗 Uptime: {str(datetime.now() - self.start_time).split('.')[0]}")
+                    logger.info(f"💗 Total scans completed: {scan_count}")
+                    logger.info(f"💗 System status: HEALTHY & MONITORING")
+                    if last_game_found:
+                        logger.info(f"💗 Last game activity: {last_game_found}")
+                    logger.info("💗 " + "="*60)
+                    last_heartbeat = datetime.now()
                 
-                # Get live games
+                logger.info(f"🔍 SCAN #{scan_count:,} - {current_time_str}")
+                logger.debug(f"   Starting scan at {self.last_check_time.strftime('%H:%M:%S')}")
+                
+                # Get live games with detailed logging
+                logger.debug("📡 Fetching live/recent games from MLB API...")
                 live_games = self.get_live_games()
+                
+                if len(live_games) > 0:
+                    consecutive_empty_scans = 0
+                    last_game_found = f"{len(live_games)} games at {current_time_str}"
+                    logger.info(f"⚾ Found {len(live_games)} live/recent games:")
+                    for i, game in enumerate(live_games, 1):
+                        home_team = game.get('teams', {}).get('home', {}).get('team', {}).get('abbreviation', 'HOME')
+                        away_team = game.get('teams', {}).get('away', {}).get('team', {}).get('abbreviation', 'AWAY')
+                        status = game.get('status', {}).get('statusCode', '')
+                        status_detail = game.get('status', {}).get('detailedState', '')
+                        game_id = game.get('gamePk', 'Unknown')
+                        logger.info(f"   {i}. {away_team} @ {home_team} (ID: {game_id}, Status: {status} - {status_detail})")
+                else:
+                    consecutive_empty_scans += 1
+                    if consecutive_empty_scans <= 5 or consecutive_empty_scans % 30 == 0:  # Log first 5, then every 30
+                        logger.info(f"⚾ No live/recent games found (scan #{consecutive_empty_scans})")
+                        if consecutive_empty_scans == 1:
+                            current_month = datetime.now().month
+                            if current_month in [11, 12, 1, 2, 3]:
+                                logger.info("   ℹ️  Off-season period - monitoring for spring training/playoff games")
+                            else:
+                                logger.info("   ℹ️  No games currently - system will continue monitoring")
                 
                 high_impact_plays_found = 0
                 total_plays_checked = 0
+                games_with_plays = 0
                 
-                for game in live_games:
+                # Process each game for high-impact plays
+                for game_idx, game in enumerate(live_games, 1):
                     game_id = game.get('gamePk')
                     if not game_id:
+                        logger.warning(f"   ⚠️  Game {game_idx} missing gamePk, skipping")
                         continue
                     
                     # Get game info
@@ -812,53 +1035,91 @@ class EnhancedImpactTracker:
                         'game_id': game_id
                     }
                     
+                    logger.debug(f"   🔍 Analyzing plays for {game_info['away_team']} @ {game_info['home_team']} (ID: {game_id})")
+                    
                     # Get plays from this game
                     plays = self.get_game_plays(game_id)
+                    if len(plays) > 0:
+                        games_with_plays += 1
+                        logger.debug(f"      Found {len(plays)} plays to analyze")
+                    
                     total_plays_checked += len(plays)
                     
                     # Process all plays for impact
-                    for play in plays:
-                        # STEP 1: Enhance play with Baseball Savant WP% data first
-                        savant_data = self.get_enhanced_wp_data_from_savant(game_id, play)
-                        if savant_data and 'delta_home_win_exp' in savant_data:
-                            play['delta_home_win_exp'] = savant_data['delta_home_win_exp']
-                            logger.debug(f"Enhanced play with Baseball Savant WP%: {savant_data['delta_home_win_exp']:.1%}")
-                        
-                        # STEP 2: Calculate impact score (now with Baseball Savant data as primary source)
-                        impact_score = self.calculate_impact_score(play)
-                        
-                        # Check if this is a marquee moment worth queuing
-                        if self.is_high_impact_play(impact_score, play.get('leverage_index', 1.0)):
-                            high_impact_plays_found += 1
-                            logger.info(f"⭐ High-impact play detected: {impact_score:.1%} impact")
-                            self.queue_high_impact_play(play, game_info, impact_score)
+                    game_high_impact_count = 0
+                    for play_idx, play in enumerate(plays):
+                        try:
+                            # STEP 1: Enhance play with Baseball Savant WP% data first
+                            savant_data = self.get_enhanced_wp_data_from_savant(game_id, play)
+                            if savant_data and 'delta_home_win_exp' in savant_data:
+                                play['delta_home_win_exp'] = savant_data['delta_home_win_exp']
+                                logger.debug(f"      Enhanced play {play_idx+1} with Baseball Savant WP%: {savant_data['delta_home_win_exp']:.1%}")
+                            
+                            # STEP 2: Calculate impact score (now with Baseball Savant data as primary source)
+                            impact_score = self.calculate_impact_score(play)
+                            
+                            # Log significant plays even if not threshold
+                            if impact_score > 0.20:  # 20% or higher
+                                play_desc = play.get('result', {}).get('description', 'Unknown play')[:50]
+                                logger.debug(f"      Significant play: {impact_score:.1%} impact - {play_desc}")
+                            
+                            # Check if this is a marquee moment worth queuing
+                            if self.is_high_impact_play(impact_score, play.get('leverage_index', 1.0)):
+                                game_high_impact_count += 1
+                                high_impact_plays_found += 1
+                                
+                                play_desc = play.get('result', {}).get('description', 'Unknown play')
+                                logger.info(f"⭐ HIGH-IMPACT PLAY DETECTED!")
+                                logger.info(f"   Impact: {impact_score:.1%} WP change")
+                                logger.info(f"   Game: {game_info['away_team']} @ {game_info['home_team']}")
+                                logger.info(f"   Play: {play_desc}")
+                                logger.info(f"   Leverage: {play.get('leverage_index', 1.0):.2f}")
+                                
+                                self.queue_high_impact_play(play, game_info, impact_score)
+                                
+                        except Exception as e:
+                            logger.error(f"      Error processing play {play_idx+1} in game {game_id}: {e}")
+                            continue
+                    
+                    if game_high_impact_count > 0:
+                        logger.info(f"   ⭐ Game {game_info['away_team']} @ {game_info['home_team']}: {game_high_impact_count} high-impact plays")
                 
-                # Calculate sleep time to maintain 2-minute intervals
-                elapsed = time.time() - start_time
+                # Calculate timing and prepare for next scan
+                elapsed = time.time() - scan_start_time
                 sleep_time = max(0, 120 - elapsed)  # 2 minutes = 120 seconds
                 
                 # Comprehensive status logging
-                logger.info(f"📊 Scan #{scan_count} completed in {elapsed:.1f}s")
-                logger.info(f"   Live/recent games found: {len(live_games)}")
-                logger.info(f"   Total plays checked: {total_plays_checked}")
-                logger.info(f"   High-impact plays found this scan: {high_impact_plays_found}")
-                logger.info(f"   Daily totals - Queued: {self.plays_queued_today}, GIFs: {self.gifs_created_today}, Tweets: {self.tweets_posted_today}")
-                logger.info(f"   Queue status: {len(self.play_queue)}/{self.max_queue_size}")
-                logger.info(f"   System uptime: {str(datetime.now() - self.start_time).split('.')[0]}")
-                logger.info(f"   Next scan in {sleep_time:.1f}s...")
+                logger.info(f"📊 SCAN #{scan_count:,} COMPLETE:")
+                logger.info(f"   ⏱️  Scan duration: {elapsed:.1f}s")
+                logger.info(f"   ⚾ Live/recent games: {len(live_games)}")
+                logger.info(f"   📈 Games with plays: {games_with_plays}")
+                logger.info(f"   🎯 Total plays analyzed: {total_plays_checked:,}")
+                logger.info(f"   ⭐ High-impact plays found: {high_impact_plays_found}")
+                logger.info(f"   📊 Daily totals - Queued: {self.plays_queued_today}, GIFs: {self.gifs_created_today}, Discord: {self.tweets_posted_today}")
+                logger.info(f"   🗃️  Queue: {len(self.play_queue)}/{self.max_queue_size} plays")
+                logger.info(f"   ⏰ System uptime: {str(datetime.now() - self.start_time).split('.')[0]}")
+                logger.info(f"   ⏭️  Next scan in {sleep_time:.1f}s...")
                 
-                # If it's been a while since we found games, remind user system is still active
+                # Special logging for quiet periods
                 if len(live_games) == 0 and scan_count % 30 == 0:  # Every hour when no games
-                    logger.info(f"🤖 System active: Completed {scan_count} scans, monitoring continuously for MLB games")
+                    logger.info(f"🤖 SYSTEM STATUS: Active and healthy after {scan_count:,} scans")
+                    logger.info(f"   Continuously monitoring for MLB games across all time zones")
+                    logger.info(f"   Will detect and process high-impact plays automatically")
                 
-                time.sleep(sleep_time)
+                # Sleep until next scan
+                if sleep_time > 0:
+                    logger.debug(f"💤 Sleeping for {sleep_time:.1f}s until next scan...")
+                    time.sleep(sleep_time)
                 
             except KeyboardInterrupt:
-                logger.info("Monitoring stopped by user")
+                logger.info("🛑 Monitoring stopped by user interrupt")
                 break
             except Exception as e:
-                logger.error(f"Error in monitoring loop (scan #{scan_count}): {e}")
-                logger.info("🔄 Continuing monitoring in 2 minutes...")
+                logger.error(f"❌ ERROR in monitoring loop (scan #{scan_count}): {e}")
+                logger.error(f"   Exception type: {type(e).__name__}")
+                logger.error(f"   Stack trace: {str(e)}")
+                logger.info("🔄 System will continue monitoring in 2 minutes...")
+                logger.info("   This error has been logged and system remains operational")
                 time.sleep(120)  # Wait 2 minutes before retrying
     
     def stop_monitoring(self):
@@ -903,15 +1164,52 @@ class EnhancedImpactTracker:
         return status
 
 def main():
-    """Main function to start the enhanced tracker"""
-    tracker = EnhancedImpactTracker()
+    """Main function to start the enhanced tracker with comprehensive logging"""
+    logger.info("🎯 " + "="*80)
+    logger.info("🎯 INITIALIZING AUTONOMOUS MLB IMPACT TRACKING SYSTEM")
+    logger.info("🎯 " + "="*80)
     
+    # Set up graceful shutdown handling
+    def signal_handler(signum, frame):
+        logger.info("🛑 " + "="*60)
+        logger.info("🛑 SHUTDOWN SIGNAL RECEIVED")
+        logger.info("🛑 " + "="*60)
+        logger.info("🛑 Gracefully stopping monitoring...")
+        if 'tracker' in locals():
+            tracker.stop_monitoring()
+        logger.info("🛑 System shutdown complete")
+        logger.info("🛑 " + "="*60)
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    tracker = None
     try:
+        # Initialize tracker (includes health check)
+        logger.info("🎯 Creating Enhanced Impact Tracker instance...")
+        tracker = EnhancedImpactTracker()
+        
+        # Log startup completion
+        logger.info("🎯 " + "="*80)
+        logger.info("🎯 SYSTEM INITIALIZATION COMPLETE")
+        logger.info("🎯 Starting autonomous monitoring for high-impact MLB plays...")
+        logger.info("🎯 " + "="*80)
+        
+        # Start monitoring
         tracker.monitor_games()
+        
     except KeyboardInterrupt:
-        logger.info("🛑 Shutting down...")
+        logger.info("🛑 Monitoring interrupted by user")
+    except Exception as e:
+        logger.error(f"❌ Fatal error in main: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        raise
     finally:
-        tracker.stop_monitoring()
+        if tracker:
+            logger.info("🛑 Performing final cleanup...")
+            tracker.stop_monitoring()
+        logger.info("🛑 Enhanced MLB Impact Tracker shutdown complete")
 
 if __name__ == "__main__":
     main() 
