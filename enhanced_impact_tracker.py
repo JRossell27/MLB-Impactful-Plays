@@ -159,8 +159,8 @@ class EnhancedImpactTracker:
         # Check Baseball Savant GIF integration
         try:
             logger.info("🏥 Testing Baseball Savant GIF integration...")
-            # Just test that the integration can be initialized
-            if hasattr(self.gif_integration, 'session'):
+            # Test that the integration can be initialized and has the required attributes
+            if hasattr(self.gif_integration, 'savant_base') and hasattr(self.gif_integration, 'temp_dir'):
                 logger.info("✅ Baseball Savant GIF: Integration initialized")
             else:
                 logger.warning("⚠️  Baseball Savant GIF: Integration may have issues")

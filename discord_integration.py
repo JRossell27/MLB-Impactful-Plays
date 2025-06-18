@@ -52,7 +52,7 @@ class DiscordPoster:
                         payload_data = {
                             'payload_json': json.dumps(payload)
                         }
-                        
+                    
                         # Send with file and text together
                         response = requests.post(
                             self.webhook_url,
@@ -61,14 +61,14 @@ class DiscordPoster:
                             timeout=30
                         )
                     
-                    # Check response for file upload
-                    if response.status_code in [200, 204]:
-                        logger.info("✅ Successfully posted to Discord with GIF")
-                        return True
-                    else:
-                        logger.error(f"❌ Discord post with GIF failed: {response.status_code} - {response.text}")
-                        # Fall back to text-only post
-                        
+                        # Check response for file upload
+                        if response.status_code in [200, 204]:
+                            logger.info("✅ Successfully posted to Discord with GIF")
+                            return True
+                        else:
+                            logger.error(f"❌ Discord post with GIF failed: {response.status_code} - {response.text}")
+                            # Fall back to text-only post
+                    
                 except Exception as e:
                     logger.error(f"Error uploading GIF to Discord: {e}")
                     # Fall back to text-only post

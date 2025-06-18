@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 Starting Mets Home Run Tracker..."
+echo "🚀 Starting Enhanced MLB Impact Tracker..."
 
 # Set Discord webhook URL if not already set
 if [ -z "$DISCORD_WEBHOOK_URL" ]; then
@@ -10,15 +10,15 @@ fi
 echo "RUN_TEST environment variable: $RUN_TEST"
 
 if [ "$RUN_TEST" = "true" ]; then
-    echo "🧪 Running test mode - checking Mets HR system..."
+    echo "🧪 Running test mode - checking Enhanced Impact Tracker system..."
     python -c "
-from mets_homerun_tracker import MetsHomeRunTracker
-tracker = MetsHomeRunTracker()
-games = tracker.get_live_mets_games()
-print(f'Found {len(games)} Mets games')
-print('✅ Mets HR Tracker test completed')
+from enhanced_impact_tracker import EnhancedImpactTracker
+tracker = EnhancedImpactTracker()
+games = tracker.get_live_games()
+print(f'Found {len(games)} live games')
+print('✅ Enhanced Impact Tracker test completed')
 "
 else
-    echo "🏠⚾ Running Mets Home Run monitoring..."
-    python mets_dashboard.py
+    echo "⚾🎯 Running Enhanced MLB Impact Tracker with GIF integration..."
+    python enhanced_dashboard.py
 fi 
