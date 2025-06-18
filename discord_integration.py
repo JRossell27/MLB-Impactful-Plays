@@ -8,6 +8,7 @@ import requests
 import logging
 from typing import Optional, Dict
 import os
+import json
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -41,44 +42,47 @@ class DiscordPoster:
             }
             
             # Handle GIF upload if provided
-            files = None
             if gif_path and os.path.exists(gif_path):
                 try:
-                    files = {
-                        'file': ('impact_play.gif', open(gif_path, 'rb'), 'image/gif')
-                    }
-                    # When uploading files, content goes in payload data
-                    payload_data = {
-                        'payload_json': str(payload).replace("'", '"')
-                    }
+                    with open(gif_path, 'rb') as gif_file:
+                        files = {
+                            'file': ('impact_play.gif', gif_file, 'image/gif')
+                        }
+                        # When uploading files, content goes in payload_json as proper JSON
+                        payload_data = {
+                            'payload_json': json.dumps(payload)
+                        }
+                        
+                        # Send with file and text together
+                        response = requests.post(
+                            self.webhook_url,
+                            data=payload_data,
+                            files=files,
+                            timeout=30
+                        )
                     
-                    # Send with file
-                    response = requests.post(
-                        self.webhook_url,
-                        data=payload_data,
-                        files=files,
-                        timeout=30
-                    )
-                    
-                    # Close file
-                    files['file'][1].close()
-                    
+                    # Check response for file upload
+                    if response.status_code in [200, 204]:
+                        logger.info("✅ Successfully posted to Discord with GIF")
+                        return True
+                    else:
+                        logger.error(f"❌ Discord post with GIF failed: {response.status_code} - {response.text}")
+                        # Fall back to text-only post
+                        
                 except Exception as e:
                     logger.error(f"Error uploading GIF to Discord: {e}")
                     # Fall back to text-only post
-                    files = None
             
-            # If no file or file upload failed, send text-only
-            if files is None:
-                response = requests.post(
-                    self.webhook_url,
-                    json=payload,
-                    timeout=15
-                )
+            # Send text-only if no GIF or if GIF upload failed
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                timeout=15
+            )
             
             # Check response
             if response.status_code in [200, 204]:
-                logger.info("✅ Successfully posted to Discord")
+                logger.info("✅ Successfully posted to Discord (text only)")
                 return True
             else:
                 logger.error(f"❌ Discord post failed: {response.status_code} - {response.text}")
