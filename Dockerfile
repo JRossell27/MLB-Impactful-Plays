@@ -14,21 +14,18 @@ COPY . .
 
 EXPOSE 5000
 
-# Create proper startup script
-COPY <<EOF /app/startup.sh
-#!/bin/bash
-echo "🚀 Starting MLB Impact System..."
-echo "RUN_TEST environment variable: '$RUN_TEST'"
-
-if [ "$RUN_TEST" = "true" ]; then
-    echo "🧪 Running test mode - processing last night's high-impact plays..."
-    python test_last_night_plays.py
-else
-    echo "🏃 Running normal monitoring mode..."
-    python enhanced_dashboard.py
-fi
-EOF
-
-RUN chmod +x /app/startup.sh
+# Create startup script with echo
+RUN echo '#!/bin/bash' > /app/startup.sh && \
+    echo 'echo "🚀 Starting MLB Impact System..."' >> /app/startup.sh && \
+    echo 'echo "RUN_TEST environment variable: $RUN_TEST"' >> /app/startup.sh && \
+    echo '' >> /app/startup.sh && \
+    echo 'if [ "$RUN_TEST" = "true" ]; then' >> /app/startup.sh && \
+    echo '    echo "🧪 Running test mode - processing last night'\''s high-impact plays..."' >> /app/startup.sh && \
+    echo '    python test_last_night_plays.py' >> /app/startup.sh && \
+    echo 'else' >> /app/startup.sh && \
+    echo '    echo "🏃 Running normal monitoring mode..."' >> /app/startup.sh && \
+    echo '    python enhanced_dashboard.py' >> /app/startup.sh && \
+    echo 'fi' >> /app/startup.sh && \
+    chmod +x /app/startup.sh
 
 CMD ["/app/startup.sh"] 
