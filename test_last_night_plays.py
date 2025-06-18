@@ -92,6 +92,7 @@ class LastNightPlayTester:
             
             for play in plays:
                 # STEP 1: Enhance play with Baseball Savant WP% data
+                play['test_date'] = self.test_date
                 savant_data = self.tracker.get_enhanced_wp_data_from_savant(game_id, play)
                 if savant_data and 'delta_home_win_exp' in savant_data:
                     play['delta_home_win_exp'] = savant_data['delta_home_win_exp']
@@ -99,6 +100,13 @@ class LastNightPlayTester:
                 
                 # STEP 2: Calculate impact score
                 impact_score = self.tracker.calculate_impact_score(play)
+                
+                # Log details about this play for debugging
+                if impact_score > 0.20:  # Log any potentially interesting plays
+                    logger.info(f"  🔍 Play analysis: {play.get('event', 'Unknown')} - {impact_score:.1%} impact")
+                    logger.info(f"     Description: {play.get('description', 'No description')}")
+                    logger.info(f"     Leverage: {play.get('leverage_index', 1.0):.2f}, Inning: {play.get('inning', 0)}{play.get('half_inning', '')}")
+                    logger.info(f"     WPA: {play.get('wpa', 'missing')}, MLB data available: {'wpa' in play}")
                 
                 # STEP 3: Check if it meets the threshold
                 if self.tracker.is_high_impact_play(impact_score, play.get('leverage_index', 1.0)):
