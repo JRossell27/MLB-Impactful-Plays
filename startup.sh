@@ -3,8 +3,10 @@ echo "🚀 Starting Enhanced MLB Impact Tracker..."
 
 # Set Discord webhook URL if not already set
 if [ -z "$DISCORD_WEBHOOK_URL" ]; then
-    export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1384903371198038167/wpSac_BDyX4fNTQq4d9fWV31QtZlmCKkzcMhVZpWJF9ZtJLJY4tMZ2L_x9Kn7McGOIKB"
-    echo "🔗 Discord webhook configured automatically"
+    echo "⚠️  DISCORD_WEBHOOK_URL environment variable not set!"
+    echo "📋 Please set your Discord webhook URL as an environment variable for security"
+    echo "🔧 Example: export DISCORD_WEBHOOK_URL='your_webhook_url_here'"
+    echo "🚫 System will continue but Discord notifications will be disabled"
 fi
 
 echo "RUN_TEST environment variable: $RUN_TEST"

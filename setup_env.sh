@@ -1,20 +1,33 @@
 #!/bin/bash
 
-# Mets Home Run Tracker Environment Setup
-echo "🏠⚾ Setting up Mets Home Run Tracker environment..."
+# Enhanced Impact Tracker Environment Setup
+echo "🚀 Setting up Enhanced Impact Tracker environment..."
 
-# Set Discord webhook URL
-export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/1384903371198038167/wpSac_BDyX4fNTQq4d9fWV31QtZlmCKkzcMhVZpWJF9ZtJLJY4tMZ2L_x9Kn7McGOIKB"
+# IMPORTANT: Set your Discord webhook URL as an environment variable for security
+# DO NOT commit webhook URLs to version control!
+# 
+# To set your Discord webhook URL:
+# export DISCORD_WEBHOOK_URL="your_webhook_url_here"
+#
+# Or create a .env file with:
+# DISCORD_WEBHOOK_URL=your_webhook_url_here
 
-# Set other default environment variables
-export AUTO_START_MONITORING="true"
-export PORT="5000"
-export SITE_URL="http://localhost:5000"
+if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+    echo "⚠️  Warning: DISCORD_WEBHOOK_URL not set!"
+    echo "📋 Please set your Discord webhook URL:"
+    echo "   export DISCORD_WEBHOOK_URL='your_webhook_url_here'"
+    echo ""
+    echo "🔗 To get a Discord webhook URL:"
+    echo "   1. Go to your Discord server settings"
+    echo "   2. Click 'Integrations' → 'Webhooks'"
+    echo "   3. Create a new webhook and copy the URL"
+    echo ""
+else
+    echo "✅ Discord webhook URL configured"
+fi
 
-echo "✅ Environment variables set:"
-echo "   - Discord webhook configured"
-echo "   - Auto-start monitoring enabled"
-echo "   - Port set to 5000"
-echo ""
-echo "🚀 Ready to start Mets HR tracking!"
-echo "   Run: ./startup.sh" 
+# Set other environment variables as needed
+export PYTHONPATH="${PYTHONPATH}:."
+
+echo "✅ Environment setup complete!"
+echo "🏃 Run: python enhanced_dashboard.py" 

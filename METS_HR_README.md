@@ -1,3 +1,63 @@
+# 🏠⚾ Mets Home Run Tracker
+
+**DEPRECATED**: This tracker has been superseded by the Enhanced MLB Impact Tracker which monitors all teams for high-impact plays.
+
+## 🔄 Migration Notice
+
+This Mets-specific tracker has been replaced by a more comprehensive system:
+- **New System**: Enhanced MLB Impact Tracker  
+- **Coverage**: All MLB teams (including Mets)
+- **Features**: High-impact plays, GIF generation, advanced analytics
+- **Configuration**: Uses environment variables for security
+
+## 🔧 Environment Variables
+
+For security, webhook URLs are now set as environment variables:
+
+```bash
+export DISCORD_WEBHOOK_URL="your_webhook_url_here"
+```
+
+**Never commit webhook URLs to your repository!**
+
+## 🚀 Recommended Migration
+
+Switch to the Enhanced MLB Impact Tracker:
+1. Use `enhanced_dashboard.py` instead of `mets_dashboard.py`
+2. Set environment variables in your deployment platform
+3. Enjoy expanded coverage of all MLB teams
+
+## 🏟️ Legacy Information
+
+This section is kept for historical reference only.
+
+### Original Features
+- ✅ Real-time Mets game monitoring
+- ✅ Home run detection with Statcast data
+- ✅ GIF generation from Baseball Savant
+- ✅ Discord notifications
+- ✅ Web dashboard interface
+
+### Original Dependencies
+- requests
+- tweepy  
+- flask
+- pillow
+- psutil
+- schedule
+- python-dotenv
+
+## 🔒 Security Updates
+
+All hardcoded webhook URLs have been removed for security. The system now requires:
+- Environment variable configuration
+- Secure deployment practices
+- No credentials in source code
+
+---
+
+**For new deployments, use the Enhanced MLB Impact Tracker system instead.**
+
 # 🏠⚾ New York Mets Home Run Tracker
 
 A real-time monitoring system that captures **EVERY SINGLE** New York Mets home run and automatically creates GIFs with Discord notifications.

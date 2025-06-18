@@ -19,7 +19,7 @@ from dataclasses import dataclass, asdict
 import threading
 import signal
 from baseball_savant_gif_integration import BaseballSavantGIFIntegration
-from discord_integration import discord_poster
+from discord_integration import discord_client
 
 # Configure comprehensive logging for autonomous operation
 logging.basicConfig(
@@ -172,11 +172,11 @@ class EnhancedImpactTracker:
         # Check Discord integration
         try:
             logger.info("🏥 Testing Discord webhook...")
-            from discord_integration import discord_poster
-            if discord_poster and discord_poster.webhook_url:
+            from discord_integration import discord_client
+            if discord_client and discord_client.is_configured():
                 logger.info("✅ Discord: Webhook configured")
             else:
-                logger.warning("⚠️  Discord: Webhook not properly configured")
+                logger.warning("⚠️  Discord: Webhook not configured - notifications disabled")
                 health_status["issues"].append("Discord webhook")
         except Exception as e:
             logger.error(f"❌ Discord: Integration failed - {e}")
@@ -768,7 +768,7 @@ class EnhancedImpactTracker:
             if queued_play.gif_path and os.path.exists(queued_play.gif_path):
                 gif_path = queued_play.gif_path
             
-            success = discord_poster.post_impact_play(play_data, gif_path)
+            success = discord_client.send_impact_notification(play_data, gif_path)
             
             if success:
                 queued_play.tweet_posted = True  # Keep this name for compatibility

@@ -1,100 +1,135 @@
-# 🚀 Mets HR Tracker Deployment Guide
+# 🚀 Enhanced MLB Impact Tracker - Deployment Guide
 
-## Quick Deploy to Render.com
+## Quick Deploy to Render
 
-### 1. GitHub Repository
-- **Repository**: https://github.com/JRossell27/Mets_HRs
-- **Discord Webhook**: Already configured in code
-- **Dependencies**: Listed in `requirements.txt`
+### 1. **Create Discord Webhook** 🔗
+1. Go to your Discord server
+2. Click **Server Settings** → **Integrations** → **Webhooks**
+3. Click **Create Webhook**
+4. Choose the channel for notifications
+5. **Copy the Webhook URL** (you'll need this for step 3)
 
-### 2. Render.com Setup
-1. Go to [render.com](https://render.com) and sign in
-2. Click "New" → "Web Service"
-3. Connect to GitHub repository: `https://github.com/JRossell27/Mets_HRs`
-4. Configure service:
-   - **Name**: `mets-hr-tracker`
-   - **Region**: Choose closest to you
+### 2. **Deploy to Render** 🌐
+1. Fork this repository to your GitHub account
+2. Go to [Render.com](https://render.com) and create an account
+3. Click **New** → **Web Service**
+4. Connect your GitHub account and select your forked repository
+5. Configure the service:
+   - **Name**: `mlb-impact-tracker` (or your preferred name)
    - **Branch**: `main`
    - **Runtime**: `Python 3`
    - **Build Command**: `pip install -r requirements.txt`
    - **Start Command**: `./startup.sh`
 
-### 3. Environment Variables (Optional)
-The Discord webhook is already hardcoded, but you can set these for customization:
+### 3. **Set Environment Variables** ⚙️
+In your Render dashboard, go to **Environment** and add:
+
+| Variable Name | Value | Description |
+|---------------|--------|-------------|
+| `DISCORD_WEBHOOK_URL` | `your_webhook_url_from_step_1` | **REQUIRED** - Your Discord webhook URL for notifications |
+| `PORT` | `5000` | Optional - Port for the web dashboard |
+| `FLASK_ENV` | `production` | Optional - Flask environment |
+
+⚠️ **IMPORTANT**: Never commit webhook URLs to your repository! Always use environment variables.
+
+### 4. **Deploy** 🚀
+1. Click **Create Web Service**
+2. Render will automatically deploy your service
+3. You'll get a URL like `https://your-app-name.onrender.com`
+
+### 5. **Verify Deployment** ✅
+1. Visit your Render URL to see the dashboard
+2. Check that monitoring status shows "🟢 ACTIVE"
+3. Watch the logs for successful game monitoring
+
+---
+
+## 🔧 Advanced Configuration
+
+### Custom Domain (Optional)
+1. In Render dashboard: **Settings** → **Custom Domains**
+2. Add your domain and follow DNS instructions
+
+### Monitoring & Alerts
+- **Dashboard**: Your Render URL shows real-time system status
+- **Logs**: Check Render logs for detailed monitoring activity
+- **Discord**: High-impact plays will be posted automatically
+
+---
+
+## 🛠️ Local Development
+
+For local testing:
 
 ```bash
-# Optional overrides
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1384903371198038167/wpSac_BDyX4fNTQq4d9fWV31QtZlmCKkzcMhVZpWJF9ZtJLJY4tMZ2L_x9Kn7McGOIKB
-AUTO_START_MONITORING=true
-PORT=5000
+# 1. Clone the repository
+git clone https://github.com/your-username/MLB-Impactful-Plays.git
+cd MLB-Impactful-Plays
+
+# 2. Set up environment
+pip install -r requirements.txt
+
+# 3. Set Discord webhook (replace with your URL)
+export DISCORD_WEBHOOK_URL="your_webhook_url_here"
+
+# 4. Test the system
+RUN_TEST=true bash startup.sh
+
+# 5. Run the dashboard
+python enhanced_dashboard.py
 ```
 
-### 4. Deploy!
-- Click "Create Web Service"
-- Render will automatically deploy from your GitHub repo
-- Your service will be available at: `https://mets-hr-tracker.onrender.com`
+---
 
-## 🏠⚾ What Happens After Deploy
+## 🔒 Security Best Practices
 
-1. **Automatic Monitoring**: Starts checking for Mets games every 2 minutes
-2. **Discord Integration**: Posts GIFs with stats to your configured webhook
-3. **Web Dashboard**: Available at your Render URL for monitoring
-4. **Keep-Alive**: Automatic pings prevent the service from sleeping
+✅ **DO:**
+- Set `DISCORD_WEBHOOK_URL` as environment variable in Render
+- Keep your webhook URLs private
+- Regenerate webhooks if compromised
 
-## 📱 Discord Message Format
+❌ **DON'T:**
+- Commit webhook URLs to your repository
+- Share webhook URLs publicly
+- Use hardcoded credentials in code
 
-Your Discord channel will receive messages like:
+---
 
-```
-🏠⚾ **Pete Alonso** goes yard! ⚾🏠
+## 📊 System Features
 
-Alonso homers (15) on a fly ball to left center field.
+- **Real-time monitoring** of all MLB games every 2 minutes
+- **High-impact play detection** using Baseball Savant WP% data
+- **Automatic GIF creation** for visual highlights
+- **Discord notifications** with embedded content
+- **Web dashboard** for system monitoring
+- **Comprehensive logging** for troubleshooting
 
-Exit Velocity: 108.5 mph | Launch Angle: 25° | Distance: 425 ft
+---
 
-#LGM
-```
+## 🔍 Troubleshooting
 
-## 🔧 Local Testing Before Deploy
+### No Discord Notifications
+- Check that `DISCORD_WEBHOOK_URL` is set in Render environment
+- Verify webhook URL is correct in Discord
+- Check Render logs for connection errors
 
-```bash
-# 1. Test the system
-python test_mets_tracker.py
+### System Not Monitoring
+- Check dashboard shows "🟢 ACTIVE" status
+- Verify Render logs show monitoring activity
+- During off-season, games may be limited
 
-# 2. Run locally
-./startup.sh
+### Performance Issues
+- Render free tier may sleep - upgrade for 24/7 operation
+- Check logs for memory or timeout issues
 
-# 3. Check dashboard
-open http://localhost:5000
-```
+---
 
-## 🛠️ Troubleshooting
+## 📈 Monitoring Stats
 
-### Common Issues
-- **Build fails**: Check that all files are committed to GitHub
-- **Discord not posting**: Webhook is hardcoded, should work automatically
-- **No games found**: Normal during off-season or non-game days
-- **Service sleeps**: The keep-alive system should prevent this
+The system tracks:
+- Games monitored per day
+- High-impact plays detected
+- GIFs created and posted
+- System uptime and health
 
-### Render.com Specific
-- **Logs**: Check the Render dashboard for build and runtime logs
-- **Redeploy**: Push to GitHub main branch to trigger redeployment
-- **Environment**: Render automatically sets PORT and other variables
-
-## 🎯 Next Steps After Deploy
-
-1. **Monitor Dashboard**: Visit your Render URL to see the web interface
-2. **Test Discord**: Wait for a Mets home run (or test with manual trigger)
-3. **Share the Love**: Let other Mets fans know about the Discord channel!
-4. **Enjoy**: Every Mets home run will now be automatically captured with GIFs
-
-## 🏟️ Ready for the Season!
-
-Your Mets HR tracker is now:
-- ✅ Monitoring every Mets game
-- ✅ Creating GIFs for all home runs
-- ✅ Posting to Discord with Statcast data
-- ✅ Available 24/7 with keep-alive
-- ✅ Accessible via web dashboard
-
-**Let's Go Mets! 🧡💙 #LGM** 
+All stats are visible on the web dashboard and in Discord status updates. 

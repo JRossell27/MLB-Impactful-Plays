@@ -13,32 +13,84 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-class DiscordPoster:
-    """Handles posting impact plays to Discord via webhook"""
-    
-    def __init__(self, webhook_url: str):
-        self.webhook_url = webhook_url
-        self.username = "MLB Impact Bot"
+class DiscordIntegration:
+    def __init__(self):
+        # Get webhook URL from environment variable only - no hardcoded fallback for security
+        self.webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
         
-    def post_impact_play(self, play_data: Dict, gif_path: Optional[str] = None) -> bool:
+        if not self.webhook_url:
+            logger.warning("⚠️  DISCORD_WEBHOOK_URL environment variable not set - Discord notifications disabled")
+            logger.info("🔧 To enable Discord notifications, set DISCORD_WEBHOOK_URL environment variable")
+        else:
+            logger.info("✅ Discord webhook configured from environment variable")
+    
+    def is_configured(self) -> bool:
+        """Check if Discord integration is properly configured"""
+        return bool(self.webhook_url)
+    
+    def send_impact_notification(self, play_data: Dict, gif_path: Optional[str] = None) -> bool:
         """
-        Post a high-impact play to Discord with GIF and formatted text
+        Send a high-impact play notification to Discord
         
         Args:
             play_data: Dictionary containing play information
-            gif_path: Path to GIF file (optional)
+            gif_path: Optional path to GIF file to attach
             
         Returns:
-            bool: True if successful, False otherwise
+            bool: True if message sent successfully, False otherwise
         """
-        try:
-            # Format the main message
-            message_content = self._format_discord_message(play_data)
+        if not self.is_configured():
+            logger.debug("Discord not configured - skipping notification")
+            return False
             
-            # Prepare the Discord payload
+        try:
+            # Create Discord embed
+            embed = {
+                "title": f"🎯 {play_data.get('event', 'High-Impact Play')}",
+                "description": play_data.get('description', ''),
+                "color": 0xFF6B35,  # Orange color
+                "fields": [
+                    {
+                        "name": "⚾ Game",
+                        "value": f"{play_data.get('away_team', 'Away')} @ {play_data.get('home_team', 'Home')}",
+                        "inline": True
+                    },
+                    {
+                        "name": "📊 Impact",
+                        "value": f"{play_data.get('impact_score', 0):.1%} WP Change",
+                        "inline": True
+                    },
+                    {
+                        "name": "⏰ Inning",
+                        "value": f"{play_data.get('inning', '?')}{play_data.get('half_inning', '')}",
+                        "inline": True
+                    }
+                ],
+                "footer": {
+                    "text": "Enhanced MLB Impact Tracker"
+                },
+                "timestamp": play_data.get('timestamp', '')
+            }
+            
+            # Add player info if available
+            if play_data.get('batter'):
+                embed["fields"].append({
+                    "name": "🏏 Batter",
+                    "value": play_data['batter'],
+                    "inline": True
+                })
+            
+            if play_data.get('pitcher'):
+                embed["fields"].append({
+                    "name": "⚾ Pitcher", 
+                    "value": play_data['pitcher'],
+                    "inline": True
+                })
+            
             payload = {
-                "content": message_content,
-                "username": self.username
+                "embeds": [embed],
+                "username": "MLB Impact Tracker",
+                "avatar_url": "https://raw.githubusercontent.com/JRossell27/MLB-Impactful-Plays/main/assets/baseball-icon.png"
             }
             
             # Handle GIF upload if provided
@@ -60,74 +112,102 @@ class DiscordPoster:
                             files=files,
                             timeout=30
                         )
-                    
-                        # Check response for file upload
-                        if response.status_code in [200, 204]:
-                            logger.info("✅ Successfully posted to Discord with GIF")
-                            return True
-                        else:
-                            logger.error(f"❌ Discord post with GIF failed: {response.status_code} - {response.text}")
-                            # Fall back to text-only post
-                    
-                except Exception as e:
-                    logger.error(f"Error uploading GIF to Discord: {e}")
-                    # Fall back to text-only post
+                        
+                except Exception as gif_error:
+                    logger.warning(f"Failed to upload GIF, sending text only: {gif_error}")
+                    # Fall back to text-only message
+                    response = requests.post(
+                        self.webhook_url,
+                        json=payload,
+                        timeout=30
+                    )
+            else:
+                # Send text-only message
+                response = requests.post(
+                    self.webhook_url,
+                    json=payload,
+                    timeout=30
+                )
             
-            # Send text-only if no GIF or if GIF upload failed
-            response = requests.post(
-                self.webhook_url,
-                json=payload,
-                timeout=15
-            )
-            
-            # Check response
-            if response.status_code in [200, 204]:
-                logger.info("✅ Successfully posted to Discord (text only)")
+            if response.status_code == 204:
+                logger.info("✅ Discord notification sent successfully")
                 return True
             else:
-                logger.error(f"❌ Discord post failed: {response.status_code} - {response.text}")
+                logger.error(f"❌ Discord webhook failed: {response.status_code} - {response.text}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error posting to Discord: {e}")
+            logger.error(f"❌ Error sending Discord notification: {e}")
             return False
     
-    def _format_discord_message(self, play_data: Dict) -> str:
-        """Format the Discord message with clean copy-paste text for Twitter"""
+    def send_system_status(self, status_data: Dict) -> bool:
+        """
+        Send a system status update to Discord
         
-        # Extract key information
-        event = play_data.get('event', 'Unknown Play')
-        impact_score = play_data.get('impact_score', 0.0)
-        away_team = play_data.get('away_team', 'AWAY')
-        home_team = play_data.get('home_team', 'HOME')
-        away_score = play_data.get('away_score', 0)
-        home_score = play_data.get('home_score', 0)
-        inning = play_data.get('inning', 1)
-        half_inning = play_data.get('half_inning', 'top')
-        description = play_data.get('description', '')
-        
-        # Format inning display
-        inning_display = f"{'T' if half_inning == 'top' else 'B'}{inning}"
-        
-        # Truncate description if too long for Twitter
-        if len(description) > 100:
-            description = description[:97] + "..."
-        
-        # Create clean Twitter copy text
-        twitter_text = f"""⭐ MARQUEE MOMENT!
+        Args:
+            status_data: Dictionary containing system status information
+            
+        Returns:
+            bool: True if message sent successfully, False otherwise
+        """
+        if not self.is_configured():
+            return False
+            
+        try:
+            embed = {
+                "title": "🤖 System Status Update",
+                "color": 0x28A745 if status_data.get('healthy', True) else 0xDC3545,
+                "fields": [
+                    {
+                        "name": "⏰ Uptime",
+                        "value": status_data.get('uptime', 'Unknown'),
+                        "inline": True
+                    },
+                    {
+                        "name": "📊 Games Checked Today",
+                        "value": str(status_data.get('games_checked', 0)),
+                        "inline": True
+                    },
+                    {
+                        "name": "🎯 Plays Queued",
+                        "value": str(status_data.get('plays_queued', 0)),
+                        "inline": True
+                    }
+                ],
+                "footer": {
+                    "text": "Enhanced MLB Impact Tracker"
+                }
+            }
+            
+            payload = {
+                "embeds": [embed],
+                "username": "MLB Impact Tracker - System"
+            }
+            
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                timeout=30
+            )
+            
+            return response.status_code == 204
+            
+        except Exception as e:
+            logger.error(f"❌ Error sending system status: {e}")
+            return False
 
-{description}
+# Create a global instance for easy importing
+discord_client = DiscordIntegration()
 
-📊 Impact: {impact_score:.1%} WP change
-⚾ {away_team} {away_score} - {home_score} {home_team} ({inning_display})
+# Fallback webhook URL for testing/demo purposes only - NOT FOR PRODUCTION
+# This is disabled by default for security
+DISCORD_WEBHOOK_URL = None  # Removed hardcoded URL for security
 
-#{away_team.replace(' ', '')} #{home_team.replace(' ', '')} #MLB"""
-
-        return twitter_text
-    
-    def post_test_message(self) -> bool:
-        """Post a test message to verify webhook is working"""
-        test_data = {
+if __name__ == "__main__":
+    # Test the Discord integration
+    print("🧪 Testing Discord integration...")
+    success = discord_client.send_impact_notification(
+        {
             'event': 'Home Run',
             'impact_score': 0.455,
             'away_team': 'NYY',
@@ -142,17 +222,7 @@ class DiscordPoster:
             'leverage_index': 3.2,
             'wpa': 0.455
         }
-        
-        return self.post_impact_play(test_data)
-
-# Initialize Discord poster with your webhook
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1384897092501114941/rm-qdGHW0zB4CLzuU8RksldRpxnfZbszo2AF66d_is4Rru_ubscZSzl0qgBzkoUorX7p"
-discord_poster = DiscordPoster(DISCORD_WEBHOOK_URL)
-
-if __name__ == "__main__":
-    # Test the Discord integration
-    print("🧪 Testing Discord integration...")
-    success = discord_poster.post_test_message()
+    )
     if success:
         print("✅ Discord integration test successful!")
         print("Check your Discord channel for the formatted test message.")
