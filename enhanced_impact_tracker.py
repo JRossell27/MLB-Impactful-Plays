@@ -617,11 +617,36 @@ class EnhancedImpactTracker:
                     self.processed_plays.discard(old_id)
                 logger.debug(f"Cleaned up {len(to_remove)} old processed play IDs")
             
+            # Get the actual game date from the game info or MLB API
+            actual_game_date = None
+            
+            # First try to get it from the test_date if this is a test
+            if 'test_date' in play:
+                actual_game_date = play['test_date']
+                logger.debug(f"Using test date for queued play: {actual_game_date}")
+            else:
+                # Try to get game date from MLB API
+                try:
+                    game_url = f"{self.api_base}/game/{play['game_id']}/feed/live"
+                    game_response = requests.get(game_url, timeout=15)
+                    if game_response.status_code == 200:
+                        game_data = game_response.json()
+                        actual_game_date = game_data.get('gameData', {}).get('datetime', {}).get('originalDate', '')
+                        if actual_game_date:
+                            logger.debug(f"Got actual game date from MLB API: {actual_game_date}")
+                except Exception as e:
+                    logger.debug(f"Could not get game date from MLB API: {e}")
+            
+            # Fallback to today's date if we can't get the actual game date
+            if not actual_game_date:
+                actual_game_date = datetime.now().strftime('%Y-%m-%d')
+                logger.debug(f"Using fallback date: {actual_game_date}")
+            
             # Create queued play object
             queued_play = QueuedPlay(
                 play_id=play_id,
                 game_id=play['game_id'],
-                game_date=datetime.now().strftime('%Y-%m-%d'),
+                game_date=actual_game_date,  # Use actual game date instead of today
                 impact_score=impact_score,
                 wpa=play.get('wpa', 0.0),
                 description=play.get('description', ''),
