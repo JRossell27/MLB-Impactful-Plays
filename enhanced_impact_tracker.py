@@ -274,6 +274,105 @@ class EnhancedImpactTracker:
             logger.error(f"Error fetching live games: {e}")
             return []
     
+    def get_enhanced_wp_data_from_savant(self, game_id: int, play_data: Dict) -> Dict:
+        """
+        Fetch Baseball Savant's delta_home_win_exp data for a specific play
+        This is the actual WP% change that Baseball Savant calculates
+        """
+        try:
+            import requests
+            import csv
+            from io import StringIO
+            from datetime import datetime
+            
+            # Get game date for Baseball Savant API
+            game_date = datetime.now().strftime('%Y-%m-%d')
+            
+            # Baseball Savant Statcast search parameters for the specific game
+            params = {
+                'all': 'true',
+                'hfPT': '',
+                'hfAB': '',
+                'hfBBT': '',
+                'hfPR': '',
+                'hfZ': '',
+                'stadium': '',
+                'hfBBL': '',
+                'hfNewZones': '',
+                'hfGT': 'R|',  # Regular season
+                'hfC': '',
+                'hfSea': '2025|',  # Current season
+                'hfSit': '',
+                'player_type': 'batter',
+                'hfOuts': '',
+                'opponent': '',
+                'pitcher_throws': '',
+                'batter_stands': '',
+                'hfSA': '',
+                'game_date_gt': game_date,
+                'game_date_lt': game_date,
+                'hfInfield': '',
+                'team': '',
+                'position': '',
+                'hfOutfield': '',
+                'hfRO': '',
+                'home_road': '',
+                'game_pk': game_id,  # Specific game
+                'hfFlag': '',
+                'hfPull': '',
+                'metric_1': '',
+                'hfInn': '',
+                'min_pitches': '0',
+                'min_results': '0',
+                'group_by': 'name',
+                'sort_col': 'pitches',
+                'player_event_sort': 'h_launch_speed',
+                'sort_order': 'desc',
+                'min_pas': '0',
+                'type': 'details',
+            }
+            
+            # Use the CSV export endpoint for easier parsing
+            url = "https://baseballsavant.mlb.com/statcast_search/csv"
+            response = requests.get(url, params=params, timeout=15)
+            
+            if response.status_code == 200:
+                # Parse CSV data to look for matching play with delta_home_win_exp
+                csv_reader = csv.DictReader(StringIO(response.text))
+                
+                target_inning = play_data.get('inning')
+                target_event = play_data.get('event', '').lower()
+                target_batter = play_data.get('batter', '')
+                
+                for row in csv_reader:
+                    # Try to match the play by inning, event type, and batter
+                    if (str(row.get('inning')) == str(target_inning) and 
+                        target_event in row.get('events', '').lower()):
+                        
+                        # Extract delta_home_win_exp if available
+                        delta_home_win_exp = row.get('delta_home_win_exp', '')
+                        if delta_home_win_exp and delta_home_win_exp != '':
+                            try:
+                                wp_change = float(delta_home_win_exp)
+                                logger.info(f"Found Baseball Savant WP% change: {wp_change:.1%} for {target_event}")
+                                return {
+                                    'delta_home_win_exp': wp_change,
+                                    'source': 'baseball_savant_csv',
+                                    'matched_event': row.get('events', ''),
+                                    'matched_inning': row.get('inning'),
+                                    'batter_name': row.get('player_name', '')
+                                }
+                            except (ValueError, TypeError):
+                                logger.debug(f"Could not parse delta_home_win_exp: {delta_home_win_exp}")
+                                continue
+            
+            logger.debug(f"No Baseball Savant delta_home_win_exp data found for game {game_id}")
+            return {}
+            
+        except Exception as e:
+            logger.debug(f"Error fetching Baseball Savant WP data: {e}")
+            return {}
+
     def get_game_plays(self, game_id: int) -> List[Dict]:
         """Get all plays from a specific game with live feed data"""
         try:
@@ -319,9 +418,17 @@ class EnhancedImpactTracker:
             return []
     
     def calculate_impact_score(self, play: Dict) -> float:
-        """Calculate impact score using MLB's WPA data when available"""
+        """Use Baseball Savant's delta_home_win_exp as primary metric, fall back to MLB WPA"""
         try:
-            # Use actual MLB WPA (Win Probability Added) if available
+            # PRIMARY: Use Baseball Savant's delta_home_win_exp directly (this is the WP% change you want)
+            delta_home_win_exp = play.get('delta_home_win_exp', 0.0)
+            if delta_home_win_exp != 0.0:
+                # Convert to absolute value to get magnitude of impact
+                impact = abs(delta_home_win_exp)
+                logger.debug(f"Using Baseball Savant delta_home_win_exp: {delta_home_win_exp} -> {impact:.1%} impact")
+                return impact
+            
+            # SECONDARY: Use actual MLB WPA (Win Probability Added) if available
             wpa = play.get('wpa', 0.0)
             if wpa != 0.0:
                 # Convert WPA to percentage impact
@@ -329,35 +436,51 @@ class EnhancedImpactTracker:
                 logger.debug(f"Using MLB WPA: {wpa} -> {impact:.1%} impact")
                 return impact
             
-            # Fallback: Calculate based on leverage and situation
+            # FALLBACK: Enhanced estimation based on play type and situation
+            # This gives us the actual WP% swing estimation when primary sources are missing
+            win_prob_home = play.get('win_probability_home', 0.5)
+            win_prob_away = play.get('win_probability_away', 0.5)
+            
             leverage = play.get('leverage_index', 1.0)
             inning = play.get('inning', 1)
             event = play.get('event', '').lower()
             
-            # Base impact estimation
-            base_impact = 0.05  # 5% base
+            # Estimate the WP% change based on the play type and situation
+            estimated_wp_change = 0.0
             
-            # Event type bonuses
+            # Base WP changes for different event types (these are estimates)
             if 'home_run' in event:
-                base_impact = 0.12
+                if inning >= 9:
+                    estimated_wp_change = 0.25 * leverage  # Late innings are more impactful
+                else:
+                    estimated_wp_change = 0.15 * leverage
             elif 'triple' in event:
-                base_impact = 0.10
+                estimated_wp_change = 0.12 * leverage
             elif 'double' in event:
-                base_impact = 0.08
+                estimated_wp_change = 0.08 * leverage
+            elif 'single' in event:
+                estimated_wp_change = 0.06 * leverage
+            elif 'walk' in event or 'base_on_balls' in event:
+                estimated_wp_change = 0.04 * leverage
+            elif 'strikeout' in event:
+                estimated_wp_change = -0.05 * leverage
+            elif 'out' in event:
+                estimated_wp_change = -0.03 * leverage
             elif 'walk_off' in event or 'walkoff' in event:
-                base_impact = 0.25
+                estimated_wp_change = 0.50  # Walk-offs are always huge
             elif 'grand_slam' in event:
-                base_impact = 0.20
+                estimated_wp_change = 0.40 * leverage
             
-            # Leverage multiplier
-            impact = base_impact * leverage
-            
-            # Late game bonus
+            # Apply situational modifiers
             if inning >= 9:
-                impact *= 1.3
+                estimated_wp_change *= 1.5  # Late game situations are more crucial
             elif inning >= 7:
-                impact *= 1.1
+                estimated_wp_change *= 1.2
             
+            # Use the absolute value to get the magnitude of impact
+            impact = abs(estimated_wp_change)
+            
+            logger.debug(f"Estimated WP% impact for {event}: {impact:.1%} (leverage: {leverage:.2f})")
             return round(impact, 4)
             
         except Exception as e:
@@ -684,6 +807,13 @@ class EnhancedImpactTracker:
                     
                     # Process all plays for impact
                     for play in plays:
+                        # STEP 1: Enhance play with Baseball Savant WP% data first
+                        savant_data = self.get_enhanced_wp_data_from_savant(game_id, play)
+                        if savant_data and 'delta_home_win_exp' in savant_data:
+                            play['delta_home_win_exp'] = savant_data['delta_home_win_exp']
+                            logger.debug(f"Enhanced play with Baseball Savant WP%: {savant_data['delta_home_win_exp']:.1%}")
+                        
+                        # STEP 2: Calculate impact score (now with Baseball Savant data as primary source)
                         impact_score = self.calculate_impact_score(play)
                         
                         # Check if this is a marquee moment worth queuing
@@ -702,7 +832,7 @@ class EnhancedImpactTracker:
                 logger.info(f"   Total plays checked: {total_plays_checked}")
                 logger.info(f"   High-impact plays found this scan: {high_impact_plays_found}")
                 logger.info(f"   Daily totals - Queued: {self.plays_queued_today}, GIFs: {self.gifs_created_today}, Tweets: {self.tweets_posted_today}")
-                logger.info(f"   Queue status: {len(self.play_queue)}/{self.max_queue_size} plays")
+                logger.info(f"   Queue status: {len(self.play_queue)}/{self.max_queue_size}")
                 logger.info(f"   System uptime: {str(datetime.now() - self.start_time).split('.')[0]}")
                 logger.info(f"   Next scan in {sleep_time:.1f}s...")
                 
