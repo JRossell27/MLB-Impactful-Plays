@@ -9,9 +9,11 @@ import threading
 import os
 from datetime import datetime
 from enhanced_impact_tracker import EnhancedImpactTracker
+import logging
 
 app = Flask(__name__)
 tracker = None
+logger = logging.getLogger(__name__)
 
 @app.route('/')
 def dashboard():
@@ -406,6 +408,12 @@ def main():
     """Main function to run the dashboard"""
     global tracker
     tracker = EnhancedImpactTracker()
+    
+    # Auto-start monitoring like the original system
+    logger.info("🏃 Auto-starting monitoring...")
+    monitoring_thread = threading.Thread(target=tracker.monitor_games, daemon=True)
+    monitoring_thread.start()
+    logger.info("🚀 Started Enhanced Impact tracker thread")
     
     port = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_ENV') == 'development'
