@@ -14,4 +14,7 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["python", "enhanced_dashboard.py"] 
+# Create startup script
+RUN echo '#!/bin/bash\nif [ "$RUN_TEST" = "true" ]; then\n  python test_last_night_plays.py\nelse\n  python enhanced_dashboard.py\nfi' > /app/startup.sh && chmod +x /app/startup.sh
+
+CMD ["/app/startup.sh"] 

@@ -8,4 +8,6 @@ services:
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: PYTHONDONTWRITEBYTECODE
-        value: "1" 
+        value: "1"
+      - key: RUN_TEST
+        value: "false" 
