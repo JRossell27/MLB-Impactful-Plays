@@ -181,36 +181,75 @@ class LiveImpactTracker:
                 "hydrate": "game(content(editorial(recap))),decisions"
             }
             
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
+            # Increased timeout and added retry logic
+            for attempt in range(3):
+                try:
+                    response = requests.get(url, params=params, timeout=30)
+                    response.raise_for_status()
+                    break
+                except requests.exceptions.RequestException as e:
+                    if attempt < 2:
+                        logger.warning(f"⚠️ API request failed (attempt {attempt + 1}), retrying in 5 seconds: {e}")
+                        time.sleep(5)
+                        continue
+                    else:
+                        raise
+            
             data = response.json()
             
             if not data.get('dates') or not data['dates']:
+                logger.info("📭 No games scheduled for today")
                 return []
             
             games = data['dates'][0].get('games', [])
             
-            # Filter for games that are live, recent, or completed today
+            # Enhanced game filtering - include more game states for better coverage
             relevant_games = []
             for game in games:
                 status = game.get('status', {}).get('statusCode', '')
-                # Include live games, recently completed games, and games in progress
-                if status in ['I', 'F', 'O', 'S', 'PW', 'D']:  # In progress, Final, Other, Suspended, Pre-Warmup, Delayed
+                detailed_state = game.get('status', {}).get('detailedState', '')
+                
+                # Include live games, recently completed games, delayed games, and postponed games
+                # This ensures we don't miss any games during periods of inactivity
+                if status in ['I', 'F', 'O', 'S', 'PW', 'D', 'P', 'C']:  # Added P (Postponed) and C (Cancelled)
                     relevant_games.append(game)
+                    logger.debug(f"🎮 Including game: {game.get('teams', {}).get('away', {}).get('name', 'Unknown')} @ {game.get('teams', {}).get('home', {}).get('name', 'Unknown')} ({detailed_state})")
             
-            logger.debug(f"🎮 Found {len(relevant_games)} relevant games out of {len(games)} total")
+            logger.info(f"🎮 Found {len(relevant_games)} relevant games out of {len(games)} total scheduled")
+            
+            # If no relevant games today, also check for games that might have started late or extended
+            if not relevant_games:
+                logger.info("🔍 No relevant games found for today, checking if any games are running late...")
+                # You could add logic here to check yesterday's games that might still be ongoing
+            
             return relevant_games
             
         except Exception as e:
             logger.error(f"❌ Error fetching live games: {e}")
+            # Don't return empty list immediately, log the error and continue monitoring
+            logger.info("🔄 Will continue monitoring despite API error...")
             return []
     
     def get_game_plays(self, game_id: str) -> List[Dict]:
         """Get all plays for a specific game"""
         try:
             url = f"https://statsapi.mlb.com/api/v1.1/game/{game_id}/feed/live"
-            response = requests.get(url, timeout=15)
-            response.raise_for_status()
+            
+            # Increased timeout and added retry logic
+            for attempt in range(3):
+                try:
+                    response = requests.get(url, timeout=30)
+                    response.raise_for_status()
+                    break
+                except requests.exceptions.RequestException as e:
+                    if attempt < 2:
+                        logger.warning(f"⚠️ Game data request failed for {game_id} (attempt {attempt + 1}), retrying: {e}")
+                        time.sleep(3)
+                        continue
+                    else:
+                        logger.error(f"❌ Failed to get game data for {game_id} after 3 attempts: {e}")
+                        return []
+            
             data = response.json()
             
             plays = data.get('liveData', {}).get('plays', {}).get('allPlays', [])
@@ -226,6 +265,7 @@ class LiveImpactTracker:
                     'home_team': teams.get('home', {}).get('name', 'Unknown'),
                 }
             
+            logger.debug(f"📊 Retrieved {len(plays)} plays for game {game_id}")
             return plays
             
         except Exception as e:
@@ -337,52 +377,104 @@ class LiveImpactTracker:
     
     def scan_for_impacts(self):
         """Scan all live games for new high-impact plays"""
+        scan_start_time = time.time()
         try:
             live_games = self.get_live_games()
             if not live_games:
-                logger.debug("📭 No live games found")
+                logger.info("📭 No live games found - system continuing to monitor")
+                # During off-season or between games, perform keep-alive activities
+                self.perform_keep_alive_activities()
                 return
             
             logger.info(f"🔍 Scanning {len(live_games)} games for impact plays...")
             
             new_impacts_found = 0
+            games_processed = 0
             
             for game in live_games:
-                game_id = game['gamePk']
-                status = game.get('status', {}).get('abstractGameState', '')
-                
-                logger.debug(f"🎮 Checking game {game_id} ({status})")
-                
-                plays = self.get_game_plays(game_id)
-                if not plays:
-                    continue
-                
-                # Check each play for impact
-                for play in plays:
-                    impact_play = self.extract_impact_from_play(play)
-                    if impact_play:
-                        # Check if this impact is high enough for top 3
-                        min_impact_for_top3 = min(p.impact for p in self.top_plays) if len(self.top_plays) == 3 else 0
-                        
-                        if len(self.top_plays) < 3 or impact_play.impact > min_impact_for_top3:
-                            self.update_top_plays(impact_play)
-                            new_impacts_found += 1
+                try:
+                    game_id = game['gamePk']
+                    status = game.get('status', {}).get('abstractGameState', '')
+                    detailed_state = game.get('status', {}).get('detailedState', '')
+                    
+                    logger.debug(f"🎮 Checking game {game_id} ({detailed_state})")
+                    
+                    plays = self.get_game_plays(game_id)
+                    if not plays:
+                        logger.debug(f"⚠️ No plays found for game {game_id}")
+                        continue
+                    
+                    games_processed += 1
+                    
+                    # Check each play for impact
+                    for play in plays:
+                        try:
+                            impact_play = self.extract_impact_from_play(play)
+                            if impact_play:
+                                # Check if this impact is high enough for top 3
+                                min_impact_for_top3 = min(p.impact for p in self.top_plays) if len(self.top_plays) == 3 else 0
+                                
+                                if len(self.top_plays) < 3 or impact_play.impact > min_impact_for_top3:
+                                    self.update_top_plays(impact_play)
+                                    new_impacts_found += 1
+                                    
+                                    # Log the discovery
+                                    wpa_type = "🎯 REAL WPA" if impact_play.has_real_wpa else "📊 Statistical"
+                                    logger.info(f"🚨 NEW HIGH IMPACT PLAY! {wpa_type}")
+                                    logger.info(f"   {impact_play.event} - {impact_play.impact:.1f}% impact")
+                                    logger.info(f"   {impact_play.away_team} @ {impact_play.home_team}")
+                                    logger.info(f"   Inning {impact_play.inning}{impact_play.half_inning}")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Error processing individual play: {e}")
+                            continue  # Continue with next play
                             
-                            # Log the discovery
-                            wpa_type = "🎯 REAL WPA" if impact_play.has_real_wpa else "📊 Statistical"
-                            logger.info(f"🚨 NEW HIGH IMPACT PLAY! {wpa_type}")
-                            logger.info(f"   {impact_play.event} - {impact_play.impact:.1f}% impact")
-                            logger.info(f"   {impact_play.away_team} @ {impact_play.home_team}")
-                            logger.info(f"   Inning {impact_play.inning}{impact_play.half_inning}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error processing game {game.get('gamePk', 'unknown')}: {e}")
+                    continue  # Continue with next game
+            
+            scan_duration = time.time() - scan_start_time
             
             if new_impacts_found > 0:
-                logger.info(f"✅ Found {new_impacts_found} new high-impact plays")
+                logger.info(f"✅ Found {new_impacts_found} new high-impact plays (processed {games_processed} games in {scan_duration:.1f}s)")
                 self.print_current_leaderboard()
             else:
-                logger.debug("📊 No new high-impact plays found")
+                logger.info(f"📊 No new high-impact plays found (processed {games_processed} games in {scan_duration:.1f}s)")
                 
         except Exception as e:
-            logger.error(f"❌ Error during impact scan: {e}")
+            logger.error(f"❌ Critical error during impact scan: {e}")
+            logger.info("🔄 System will continue monitoring despite error...")
+    
+    def perform_keep_alive_activities(self):
+        """Perform activities to keep the system active during periods of no games"""
+        try:
+            # Log system status
+            current_time = datetime.now(eastern_tz)
+            logger.info(f"🔄 Keep-alive check at {current_time.strftime('%H:%M:%S ET')}")
+            
+            # Check data file status
+            if hasattr(self, 'data_file') and os.path.exists(self.data_file):
+                file_size = os.path.getsize(self.data_file)
+                logger.debug(f"📁 Data file size: {file_size} bytes")
+            
+            # Log current standings if we have any
+            if self.top_plays:
+                logger.info(f"🏆 Current leaderboard maintained with {len(self.top_plays)} plays")
+            
+            # Check for tomorrow's schedule to show system is forward-looking
+            tomorrow = (datetime.now(eastern_tz) + timedelta(days=1)).strftime("%Y-%m-%d")
+            try:
+                url = "https://statsapi.mlb.com/api/v1/schedule"
+                params = {"sportId": 1, "date": tomorrow}
+                response = requests.get(url, params=params, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    tomorrow_games = data.get('dates', [{}])[0].get('games', []) if data.get('dates') else []
+                    logger.info(f"📅 Tomorrow ({tomorrow}): {len(tomorrow_games)} games scheduled")
+            except:
+                pass  # Don't let keep-alive activities fail the main loop
+                
+        except Exception as e:
+            logger.debug(f"Keep-alive activity error (non-critical): {e}")
     
     def print_current_leaderboard(self):
         """Print the current top 3 plays"""
@@ -402,35 +494,74 @@ class LiveImpactTracker:
         return self.load_previous_day_data()
     
     def start_monitoring(self, interval_minutes=2):
-        """Start the continuous monitoring loop"""
+        """Start the continuous monitoring loop with enhanced error handling"""
         logger.info(f"🚀 Starting live impact monitoring (every {interval_minutes} minutes)")
+        logger.info("🔄 Enhanced monitoring with improved error handling and timeout management")
+        
         self.is_running = True
+        scan_count = 0
+        consecutive_errors = 0
+        last_heartbeat = time.time()
         
         while self.is_running:
             try:
+                scan_count += 1
+                current_time = datetime.now(eastern_tz)
+                
+                # Heartbeat logging every 5 minutes to show system is alive
+                if scan_count == 1 or time.time() - last_heartbeat > 300:  # First scan or every 5 minutes (300 seconds)
+                    logger.info(f"💓 System heartbeat - Scan #{scan_count} at {current_time.strftime('%Y-%m-%d %H:%M:%S ET')}")
+                    logger.info(f"💓 Uptime: System has been running continuously")
+                    logger.info(f"💓 Current top plays: {len(self.top_plays)}")
+                    last_heartbeat = time.time()
+                
                 # Check if we need to reset for a new day
                 current_date = self.get_today_date()
                 if hasattr(self, '_last_date') and self._last_date != current_date:
                     logger.info("📅 New day detected - resetting daily data")
                     self.reset_daily_data()
+                    scan_count = 1  # Reset scan count for new day
                 self._last_date = current_date
                 
                 # Scan for new impacts
+                logger.debug(f"🔍 Starting scan #{scan_count}")
                 self.scan_for_impacts()
                 
+                # Reset consecutive error counter on successful scan
+                consecutive_errors = 0
+                
                 # Wait before next scan
+                logger.debug(f"😴 Sleeping for {interval_minutes} minutes until next scan...")
                 time.sleep(interval_minutes * 60)
                 
             except KeyboardInterrupt:
                 logger.info("🛑 Monitoring stopped by user")
                 break
             except Exception as e:
-                logger.error(f"❌ Error in monitoring loop: {e}")
-                time.sleep(60)  # Wait 1 minute before retrying
+                consecutive_errors += 1
+                logger.error(f"❌ Error in monitoring loop (scan #{scan_count}): {e}")
+                logger.error(f"   Exception type: {type(e).__name__}")
+                
+                # Implement exponential backoff for consecutive errors
+                if consecutive_errors <= 3:
+                    wait_time = min(60 * consecutive_errors, 300)  # Max 5 minutes
+                    logger.info(f"🔄 Consecutive error #{consecutive_errors} - waiting {wait_time} seconds before retry")
+                    time.sleep(wait_time)
+                else:
+                    # After 3 consecutive errors, use standard interval but log warning
+                    logger.warning(f"⚠️ {consecutive_errors} consecutive errors detected - continuing with standard interval")
+                    logger.warning("⚠️ This may indicate a persistent issue, but system will continue operating")
+                    time.sleep(interval_minutes * 60)
+                
+                # Log system status for debugging
+                logger.info(f"🔍 System status: is_running={self.is_running}, top_plays={len(self.top_plays)}")
+        
+        logger.info("🛑 Monitoring loop ended")
     
     def stop_monitoring(self):
         """Stop the monitoring loop"""
         self.is_running = False
+        logger.info("🛑 Stopping live impact monitoring...")
 
 def main():
     """Main function to start live monitoring"""
