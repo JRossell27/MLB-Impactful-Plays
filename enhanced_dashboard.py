@@ -4,11 +4,12 @@ Flask Dashboard for Enhanced MLB Impact Tracker
 Displays real-time queue status, GIF processing, and system metrics
 """
 
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, redirect, url_for, flash
 import threading
 import os
 from datetime import datetime
 from enhanced_impact_tracker import EnhancedImpactTracker
+from discord_integration import discord_client
 import logging
 
 app = Flask(__name__)
@@ -295,6 +296,30 @@ def dashboard():
                     <div class="stat-value" style="font-size: 1.5em;">{{ status.get('uptime', 'Not started') }}</div>
                     <div class="stat-label">Running Since Start</div>
                 </div>
+                
+                <div class="stat-card">
+                    <div class="stat-title">💬 Discord Test</div>
+                    <div class="stat-value" style="font-size: 1.2em;">
+                        <a href="/test-discord" style="text-decoration: none;">
+                            <button style="
+                                background: linear-gradient(45deg, #5865F2, #7289DA);
+                                color: white;
+                                border: none;
+                                padding: 12px 24px;
+                                border-radius: 25px;
+                                font-weight: bold;
+                                cursor: pointer;
+                                transition: transform 0.2s ease;
+                                font-size: 0.9em;
+                                text-transform: uppercase;
+                                letter-spacing: 1px;
+                            " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                                🚀 Send Test Message
+                            </button>
+                        </a>
+                    </div>
+                    <div class="stat-label">Test Discord Webhook</div>
+                </div>
             </div>
             
             <div class="queue-section">
@@ -403,6 +428,38 @@ def stop_monitoring():
 def health_check():
     """Health check endpoint for monitoring services"""
     return {'status': 'healthy', 'timestamp': str(datetime.now())}
+
+@app.route('/test-discord')
+def test_discord():
+    """Send a test message to Discord webhook"""
+    if not discord_client.is_configured():
+        return "❌ Discord webhook not configured. Please set DISCORD_WEBHOOK_URL environment variable."
+    
+    try:
+        # Create test play data
+        test_play_data = {
+            'event': 'Discord Test Message',
+            'description': f'🧪 Test message sent from Enhanced MLB Impact Tracker dashboard at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+            'away_team': 'Test Team A',
+            'home_team': 'Test Team B',
+            'impact_score': 0.42,  # 42% for fun
+            'inning': '9',
+            'half_inning': 'Bot',
+            'batter': 'Dashboard Tester',
+            'pitcher': 'System Bot',
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Send test message
+        success = discord_client.send_impact_notification(test_play_data)
+        
+        if success:
+            return "✅ Discord test message sent successfully! Check your Discord channel."
+        else:
+            return "❌ Failed to send Discord test message. Check the logs for details."
+            
+    except Exception as e:
+        return f"❌ Error sending Discord test message: {str(e)}"
 
 def main():
     """Main function to run the dashboard"""
