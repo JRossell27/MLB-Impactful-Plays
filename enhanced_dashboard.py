@@ -461,6 +461,17 @@ def test_discord():
     except Exception as e:
         return f"❌ Error sending Discord test message: {str(e)}"
 
+@app.route('/api/ping')
+def ping():
+    """Keep-alive endpoint to prevent Render from spinning down the service"""
+    logger.debug("💓 Keep-alive ping received")
+    return jsonify({
+        'status': 'alive',
+        'timestamp': datetime.now().isoformat(),
+        'service': 'mlb-impact-tracker',
+        'monitoring_active': tracker.monitoring if tracker else False
+    })
+
 def main():
     """Main function to run the dashboard"""
     global tracker
@@ -468,9 +479,20 @@ def main():
     
     # Auto-start monitoring like the original system
     logger.info("🏃 Auto-starting monitoring...")
-    monitoring_thread = threading.Thread(target=tracker.monitor_games, daemon=True)
+    
+    def run_monitoring():
+        """Run monitoring with keep-alive URL"""
+        # Get keep-alive URL for this dashboard
+        base_url = os.environ.get('RENDER_EXTERNAL_URL', 'https://mlb-impactful-plays.onrender.com')
+        keep_alive_url = f"{base_url}/api/ping"
+        logger.info(f"💓 Using keep-alive URL: {keep_alive_url}")
+        
+        # Start monitoring with keep-alive ping
+        tracker.monitor_games(keep_alive_url=keep_alive_url)
+    
+    monitoring_thread = threading.Thread(target=run_monitoring, daemon=True)
     monitoring_thread.start()
-    logger.info("🚀 Started Enhanced Impact tracker thread")
+    logger.info("🚀 Started Enhanced Impact tracker thread with keep-alive ping")
     
     port = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_ENV') == 'development'

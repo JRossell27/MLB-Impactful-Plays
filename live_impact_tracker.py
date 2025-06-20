@@ -493,10 +493,12 @@ class LiveImpactTracker:
         """Get the previous day's top 3 plays for tweeting"""
         return self.load_previous_day_data()
     
-    def start_monitoring(self, interval_minutes=2):
-        """Start the continuous monitoring loop with enhanced error handling"""
+    def start_monitoring(self, interval_minutes=2, keep_alive_url=None):
+        """Start the continuous monitoring loop with enhanced error handling and keep-alive ping"""
         logger.info(f"🚀 Starting live impact monitoring (every {interval_minutes} minutes)")
         logger.info("🔄 Enhanced monitoring with improved error handling and timeout management")
+        if keep_alive_url:
+            logger.info(f"💓 Keep-alive URL configured: {keep_alive_url}")
         
         self.is_running = True
         scan_count = 0
@@ -529,6 +531,17 @@ class LiveImpactTracker:
                 
                 # Reset consecutive error counter on successful scan
                 consecutive_errors = 0
+                
+                # Keep-alive ping to prevent Render from spinning down
+                if keep_alive_url:
+                    try:
+                        response = requests.get(keep_alive_url, timeout=10)
+                        if response.status_code == 200:
+                            logger.debug("💓 Keep-alive ping successful")
+                        else:
+                            logger.warning(f"⚠️ Keep-alive ping returned status {response.status_code}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Keep-alive ping failed: {e}")
                 
                 # Wait before next scan
                 logger.debug(f"😴 Sleeping for {interval_minutes} minutes until next scan...")
@@ -573,9 +586,15 @@ def main():
     else:
         logger.info("📭 No high-impact plays found yet today")
     
-    # Start monitoring
+    # Start monitoring with keep-alive URL for Render hosting
     try:
-        tracker.start_monitoring(interval_minutes=2)
+        # Get keep-alive URL from environment or use default
+        keep_alive_url = os.environ.get('RENDER_EXTERNAL_URL', 'https://mlb-impactful-plays.onrender.com')
+        if keep_alive_url and not keep_alive_url.endswith('/api/ping'):
+            keep_alive_url += '/api/ping'
+        
+        logger.info(f"💓 Using keep-alive URL: {keep_alive_url}")
+        tracker.start_monitoring(interval_minutes=2, keep_alive_url=keep_alive_url)
     except KeyboardInterrupt:
         logger.info("🛑 Shutting down...")
     finally:

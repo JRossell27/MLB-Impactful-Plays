@@ -940,7 +940,7 @@ class EnhancedImpactTracker:
         except Exception as e:
             logger.warning(f"Error during cleanup: {e}")
     
-    def monitor_games(self):
+    def monitor_games(self, keep_alive_url=None):
         """Main monitoring loop - checks every 2 minutes for high-impact plays with comprehensive logging"""
         logger.info("🚀 " + "="*80)
         logger.info("🚀 STARTING AUTONOMOUS MLB IMPACT MONITORING SYSTEM")
@@ -951,6 +951,8 @@ class EnhancedImpactTracker:
         logger.info("   • 40% WP threshold for high-impact plays")
         logger.info("   • Automatic GIF creation and Discord posting")
         logger.info("   • Continuous operation with detailed logging")
+        if keep_alive_url:
+            logger.info(f"   • Keep-alive ping configured: {keep_alive_url}")
         logger.info("🚀 " + "="*80)
         
         self.monitoring = True
@@ -1087,6 +1089,17 @@ class EnhancedImpactTracker:
                 # Calculate timing and prepare for next scan
                 elapsed = time.time() - scan_start_time
                 sleep_time = max(0, 120 - elapsed)  # 2 minutes = 120 seconds
+                
+                # Keep-alive ping to prevent Render from spinning down
+                if keep_alive_url:
+                    try:
+                        response = requests.get(keep_alive_url, timeout=10)
+                        if response.status_code == 200:
+                            logger.debug("💓 Keep-alive ping successful")
+                        else:
+                            logger.warning(f"⚠️ Keep-alive ping returned status {response.status_code}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Keep-alive ping failed: {e}")
                 
                 # Comprehensive status logging
                 logger.info(f"📊 SCAN #{scan_count:,} COMPLETE:")
